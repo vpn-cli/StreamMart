@@ -1,0 +1,10 @@
+node_modules/
+.env
+.local
+.DS_Store
+
+# Tutorial files
+1-without-microservices/
+2-microservices-single-kafka-server/
+3-microservices-kafka-cluster/
+microservices-kafka/

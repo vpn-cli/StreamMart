@@ -1,0 +1,38 @@
+name: Microservices CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: '**/package-lock.json'
+        
+    - name: Install dependencies and test Payment Service
+      run: |
+        cd payment-service
+        npm install
+        npm test
+      env:
+        NODE_ENV: test
+        
+    # Later you can add steps here to build the docker images and push them to a registry (Docker Hub/ECR)
+    - name: Build Docker Image for Payment Service
+      run: |
+        cd payment-service
+        docker build -t my-payment-service:test .
