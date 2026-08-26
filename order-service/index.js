@@ -4,7 +4,7 @@ import { orders } from "./db/schema.js";
 
 const kafka = new Kafka({
   clientId: "order-service",
-  brokers: ["localhost:9094", "localhost:9095", "localhost:9096"],
+  brokers: [process.env.KAFKA_BROKERS || "localhost:9092"],
 });
 
 const producer = kafka.producer();

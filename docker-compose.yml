@@ -24,6 +24,7 @@ services:
   api-gateway:
     build:
       context: ./api-gateway
+    restart: always
     ports:
       - "8080:8080"
     environment:
@@ -35,6 +36,7 @@ services:
   payment-service:
     build:
       context: ./payment-service
+    restart: always
     ports:
       - "8000:8000"
     environment:
@@ -47,8 +49,27 @@ services:
   order-service:
     build:
       context: ./order-service
+    restart: always
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - kafka
+
+  email-service:
+    build:
+      context: ./email-service
+    restart: always
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - kafka
+
+  analytic-service:
+    build:
+      context: ./analytic-service
+    restart: always
+    environment:
       - KAFKA_BROKERS=kafka:9092
     depends_on:
       - kafka

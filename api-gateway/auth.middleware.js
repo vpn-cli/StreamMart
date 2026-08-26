@@ -11,6 +11,13 @@ export const verifyToken = (req, res, next) => {
 
   const token = authHeader.split(" ")[1];
 
+  // Development bypass for Next.js frontend testing
+  if (token === "mock.jwt.token") {
+    req.user = { userId: "123" };
+    req.headers['x-user-id'] = "123";
+    return next();
+  }
+
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded; 

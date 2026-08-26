@@ -1,4 +1,5 @@
 import express from "express";
+import { Kafka } from "kafkajs";
 import cors from "cors";
 import { db } from "./db/index.js";
 import { payments, outboxEvents } from "./db/schema.js";
@@ -29,7 +30,7 @@ const connectToKafka = async () => {
   }
 };
 
-app.post("/payment-service", async (req, res) => {
+app.post("/", async (req, res) => {
   const { cart } = req.body;
   // In a real app we decrypt user token/cookie
   // Now we get it securely from the API Gateway header!
