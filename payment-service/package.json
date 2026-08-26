@@ -13,11 +13,14 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
     "cors": "^2.8.5",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
-    "kafkajs": "^2.2.4"
+    "kafkajs": "^2.2.4",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
+    "drizzle-kit": "^0.31.10",
     "jest": "^30.4.2",
     "supertest": "^7.2.2"
   }

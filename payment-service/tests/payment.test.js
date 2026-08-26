@@ -11,12 +11,17 @@ jest.unstable_mockModule("kafkajs", () => {
   };
 });
 
-// Mock Supabase to avoid hitting real DBs during unit tests
-jest.unstable_mockModule("../supabaseClient.js", () => {
+// Mock Drizzle to avoid hitting real DBs during unit tests
+jest.unstable_mockModule("../db/index.js", () => {
   return {
-    supabase: {
-      from: jest.fn().mockReturnThis(),
-      insert: jest.fn().mockReturnValue({ error: null })
+    db: {
+      transaction: jest.fn(async (cb) => {
+        const mockTx = {
+          insert: jest.fn().mockReturnThis(),
+          values: jest.fn()
+        };
+        return cb(mockTx);
+      })
     }
   };
 });

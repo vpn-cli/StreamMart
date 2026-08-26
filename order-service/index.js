@@ -1,5 +1,6 @@
 import { Kafka } from "kafkajs";
-import { supabase } from "./supabaseClient.js";
+import { db } from "./db/index.js";
+import { orders } from "./db/schema.js";
 
 const kafka = new Kafka({
   clientId: "order-service",
@@ -23,19 +24,21 @@ const run = async () => {
         const value = message.value.toString();
         const { userId, cart } = JSON.parse(value);
 
-        // Create order on real DB (Supabase)
+        // Create order on real DB (Drizzle ORM)
         let orderId = "mock-order-id";
-        if (process.env.SUPABASE_URL !== 'placeholder') {
-          const { data, error } = await supabase
-            .from("orders")
-            .insert([{ user_id: userId, items: cart, status: "processing" }])
-            .select()
-            .single();
+        if (process.env.DATABASE_URL) {
+          try {
+            const data = await db.insert(orders).values({
+              userId: userId,
+              items: cart,
+              status: "processing"
+            }).returning();
             
-          if (error) {
-            console.error("Database error inserting order. Make sure 'orders' table exists: ", error.message);
-          } else if (data) {
-            orderId = data.id;
+            if (data && data.length > 0) {
+              orderId = data[0].id;
+            }
+          } catch (e) {
+            console.error("Database error inserting order. Make sure 'orders' table exists: ", e.message);
           }
         }
         

@@ -49,3 +49,42 @@ spec:
       - name: order-service
         image: order-service:latest
         imagePullPolicy: Never
+---
+# API Gateway
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: api-gateway:latest
+        imagePullPolicy: Never
+        env:
+        - name: PAYMENT_SERVICE_URL
+          value: "http://payment-service:8000"
+        - name: JWT_SECRET
+          value: "super-secret-development-key"
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: api-gateway

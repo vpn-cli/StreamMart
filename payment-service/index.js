@@ -1,7 +1,8 @@
 import express from "express";
 import cors from "cors";
-import { Kafka } from "kafkajs";
-import { supabase } from "./supabaseClient.js";
+import { db } from "./db/index.js";
+import { payments, outboxEvents } from "./db/schema.js";
+import { startOutboxWorker } from "./worker.js";
 
 const app = express();
 
@@ -31,31 +32,36 @@ const connectToKafka = async () => {
 app.post("/payment-service", async (req, res) => {
   const { cart } = req.body;
   // In a real app we decrypt user token/cookie
-  const userId = "123";
+  // Now we get it securely from the API Gateway header!
+  const userId = req.headers['x-user-id'] || "123";
 
-  // PAYMENT LOGIC via Supabase DB Persistence
-  if (process.env.SUPABASE_URL !== 'placeholder') {
-    const { error } = await supabase
-      .from("payments")
-      .insert([{ user_id: userId, amount: cart?.length * 10 || 0, status: "completed" }]);
-      
-    if (error) {
-      console.error("Failed to insert payment record. Make sure 'payments' table exists:", error.message);
+  // PERFECT TRANSACTIONAL OUTBOX PATTERN via Drizzle ORM
+  if (process.env.DATABASE_URL) {
+    const amount = cart ? cart.length * 10 : 0;
+    
+    try {
+      // 1. Insert Payment & Outbox Event ATOMICALLY!
+      await db.transaction(async (tx) => {
+        await tx.insert(payments).values({
+          userId: userId,
+          amount: String(amount),
+          status: "completed"
+        });
+        
+        await tx.insert(outboxEvents).values({
+          topic: "payment-successful",
+          payload: { userId, cart },
+          published: false 
+        });
+      });
+    } catch (e) {
+      console.error("Failed Atomic Outbox Transaction:", e);
+      return res.status(500).send("Database transaction failed");
     }
   }
 
-  // KAFKA NOTIFICATION
-  try {
-    await producer.send({
-      topic: "payment-successful",
-      messages: [{ value: JSON.stringify({ userId, cart }) }],
-    });
-  } catch (err) {
-    console.error("Kafka error:", err);
-    return res.status(500).send("Message broker failure");
-  }
-
-  return res.status(200).send("Payment processed and event broadcasted");
+  // Notice: Absolutely no producer.send() here! The background worker will do it.
+  return res.status(200).send("Payment processed and event safely queued in outbox.");
 });
 
 app.use((err, req, res, next) => {
@@ -64,7 +70,7 @@ app.use((err, req, res, next) => {
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(8000, () => {
-    connectToKafka();
+    startOutboxWorker(); // Safely decoupling this from the REST logic!
     console.log("Payment service is running on port 8000");
   });
 }
