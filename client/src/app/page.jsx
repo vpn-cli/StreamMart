@@ -1,71 +1,78 @@
-import Pay from "@/components/Pay";
-import { Minus } from "lucide-react";
-import Image from "next/image";
+"use client";
 
-const Page = () => {
-  const cart = [
-    {
-      id: 1,
-      name: "Nike Air Max",
-      price: 129.9,
-      image: "/product1.png",
-      description:
-        "Lorem ipsum dolor sit amet consectetur adipisicing elit. Quisquam, quos. Lorem ipsum dolor sit amet consectetur adipisicing elit.",
-    },
-    {
-      id: 2,
-      name: "Adidas Superstar Cap",
-      price: 29.9,
-      image: "/product2.png",
-      description:
-        "Lorem ipsum dolor sit amet consectetur adipisicing elit. Quisquam, quos. Lorem ipsum dolor sit amet consectetur adipisicing elit.",
-    },
-    {
-      id: 3,
-      name: "Puma Yellow T-Shirt",
-      price: 49.9,
-      image: "/product3.png",
-      description:
-        "Lorem ipsum dolor sit amet consectetur adipisicing elit. Quisquam, quos. Lorem ipsum dolor sit amet consectetur adipisicing elit.",
-    },
-  ];
+import { useState } from "react";
+
+export default function CheckoutPage() {
+  const [status, setStatus] = useState("idle");
+
+  const handleCheckout = async () => {
+    setStatus("processing");
+    try {
+      const response = await fetch("http://localhost:8080/api/payment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // The API Gateway requires a standard Bearer token (JWT)
+          // In a real app we fetch this from Supabase/Clerk Auth context
+          "Authorization": "Bearer mock.jwt.token", 
+        },
+        body: JSON.stringify({
+          cart: [{ id: 1, name: "Kafka Hoodie", price: 50 }],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Payment declined by gateway");
+      }
+
+      setStatus("success");
+    } catch (error) {
+      console.error(error);
+      setStatus("error");
+    }
+  };
+
   return (
-    <div className="mb-16">
-      <h1 className="text-2xl font-bold">Cart Products</h1>
-      <div className="flex flex-col lg:flex-row justify-between gap-16 mt-16">
-        <div className="flex flex-col gap-16 w-full lg:w-2/3">
-          {cart.map((item) => (
-            <div key={item.id} className="flex gap-4">
-              <Image
-                src={item.image}
-                alt={item.name}
-                width={300}
-                height={200}
-                className="rounded-lg"
-                quality={100}
-              />
-              <div className="flex flex-col gap-2">
-                <h3 className="text-lg font-bold">{item.name}</h3>
-                <p className="text-sm text-gray-500">{item.description}</p>
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold text-gray-800">
-                    ${item.price.toFixed(2)}
-                  </h2>
-                  <div className="flex items-center gap-1 bg-red-100 rounded-md p-1">
-                    <Minus className="w-2 h-2 text-red-300" />
-                    <span className="text-[10px] text-red-300">Remove</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
+    <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gray-50 text-black">
+      <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-lg border border-gray-200">
+        <h1 className="text-3xl font-bold mb-6 text-gray-800">StreamMart Checkout</h1>
+        
+        <div className="bg-gray-100 p-4 rounded-lg mb-6 shadow-inner">
+          <div className="flex justify-between items-center font-medium text-gray-700">
+            <span>1x Kafka Hoodie</span>
+            <span>$50.00</span>
+          </div>
+          <hr className="my-3 border-gray-300" />
+          <div className="flex justify-between items-center font-bold text-gray-900">
+            <span>Total</span>
+            <span>$50.00</span>
+          </div>
         </div>
-        <div className="w-full lg:w-1/3">
-          <Pay cart={cart} />
-        </div>
-      </div>
-    </div>
-  );
-};
 
-export default Page;
+        <button
+          onClick={handleCheckout}
+          disabled={status === "processing"}
+          className={`w-full py-4 px-4 rounded-lg font-semibold text-white transition-all shadow-md ${
+            status === "processing" ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 hover:-translate-y-1"
+          }`}
+        >
+          {status === "processing" ? "Processing via API Gateway..." : "Pay $50.00"}
+        </button>
+
+        {status === "success" && (
+          <div className="mt-6 p-4 bg-green-100 text-green-800 rounded-lg border border-green-300 shadow-sm">
+            <p className="font-bold text-lg mb-1">Payment Successful! 🎉</p>
+            <p className="text-sm">Data saved to DB and asynchronously published to Kafka via the Outbox pattern.</p>
+          </div>
+        )}
+
+        {status === "error" && (
+          <div className="mt-6 p-4 bg-red-100 text-red-800 rounded-lg border border-red-300 shadow-sm">
+            <p className="font-bold text-lg mb-1">Payment Failed ❌</p>
+            <p className="text-sm">Check if the API Gateway (port 8080) and Supabase DB/PostgreSQL are running.</p>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
