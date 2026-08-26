@@ -13,7 +13,7 @@ export default function CheckoutPage() {
         headers: {
           "Content-Type": "application/json",
           // The API Gateway requires a standard Bearer token (JWT)
-          // In a real app we fetch this from Supabase/Clerk Auth context
+          // In a real app we fetch this from NextAuth Auth
           "Authorization": "Bearer mock.jwt.token", 
         },
         body: JSON.stringify({
@@ -69,7 +69,7 @@ export default function CheckoutPage() {
         {status === "error" && (
           <div className="mt-6 p-4 bg-red-100 text-red-800 rounded-lg border border-red-300 shadow-sm">
             <p className="font-bold text-lg mb-1">Payment Failed ❌</p>
-            <p className="text-sm">Check if the API Gateway (port 8080) and Supabase DB/PostgreSQL are running.</p>
+            <p className="text-sm">Check if the API Gateway (port 8080) and Neon PostgreSQL Database are running.</p>
           </div>
         )}
       </div>

@@ -4,7 +4,7 @@
 An enterprise-grade, event-driven e-commerce microservices architecture.
 
 ## Overview
-This repository contains a decoupled backend system utilizing **Apache Kafka** for event streaming and asynchronous communication. Each service is containerized via **Docker**, orchestrated using **Kubernetes**, and natively integrated with **Supabase (PostgreSQL)** for persistence. 
+This repository contains a decoupled backend system utilizing **Apache Kafka** for event streaming and asynchronous communication. Each service is containerized via **Docker**, orchestrated using **Kubernetes**, and natively integrated with **Neon (Serverless PostgreSQL)** via **Drizzle ORM** for persistence. 
 
 ## Services Include
 - **Client (Next.js)**: Modern frontend for interacting with endpoints.
@@ -17,7 +17,8 @@ This repository contains a decoupled backend system utilizing **Apache Kafka** f
 - **Node.js & Express.js**
 - **Apache Kafka & Zookeeper**
 - **Kubernetes & Docker**
-- **Supabase (PostgreSQL)**
+- **Neon (Serverless PostgreSQL)**
+- **Drizzle ORM**
 - **Jest & Supertest** for integration testing
 - **GitHub Actions** for CI/CD
 

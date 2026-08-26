@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.4
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.4
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - PAYMENT_SERVICE_URL=http://payment-service:8000
+      - JWT_SECRET=super-secret-development-key
+    depends_on:
+      - payment-service
+
+  payment-service:
+    build:
+      context: ./payment-service
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - KAFKA_BROKERS=kafka:9092
+      - NODE_ENV=development
+    depends_on:
+      - kafka
+
+  order-service:
+    build:
+      context: ./order-service
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - kafka
+
+  client:
+    build:
+      context: ./client
+    ports:
+      - "3000:3000"
