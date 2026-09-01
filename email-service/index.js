@@ -3,6 +3,14 @@ import { Kafka } from "kafkajs";
 const kafka = new Kafka({
   clientId: "email-service",
   brokers: [process.env.KAFKA_BROKERS || "localhost:9092"],
+  ...(process.env.KAFKA_SASL_USERNAME && {
+    ssl: true,
+    sasl: {
+      mechanism: 'plain',
+      username: process.env.KAFKA_SASL_USERNAME,
+      password: process.env.KAFKA_SASL_PASSWORD,
+    },
+  }),
 });
 
 const producer = kafka.producer();

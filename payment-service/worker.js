@@ -4,8 +4,16 @@ import { eq } from "drizzle-orm";
 import { Kafka } from "kafkajs";
 
 const kafka = new Kafka({
-  clientId: "outbox-worker",
-  brokers: process.env.KAFKA_BROKERS ? process.env.KAFKA_BROKERS.split(',') : ["localhost:9094", "localhost:9095", "localhost:9096"],
+  clientId: "payment-service-worker",
+  brokers: [process.env.KAFKA_BROKERS || "localhost:9092"],
+  ...(process.env.KAFKA_SASL_USERNAME && {
+    ssl: true,
+    sasl: {
+      mechanism: 'plain',
+      username: process.env.KAFKA_SASL_USERNAME,
+      password: process.env.KAFKA_SASL_PASSWORD,
+    },
+  }),
 });
 
 const producer = kafka.producer();
