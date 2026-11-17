@@ -1,6 +1,30 @@
+import http from "node:http";
 import { Kafka } from "kafkajs";
 import { db } from "./db/index.js";
 import { orders } from "./db/schema.js";
+
+let isReady = false;
+
+// Health check server for container orchestration
+const healthServer = http.createServer((req, res) => {
+  if (req.url === "/health") {
+    if (isReady) {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("Order Service OK");
+    } else {
+      res.writeHead(503, { "Content-Type": "text/plain" });
+      res.end("Order Service Starting...");
+    }
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+
+const HEALTH_PORT = process.env.PORT || 8001;
+healthServer.listen(HEALTH_PORT, () => {
+  console.log(`🚀 Order service health server listening on port ${HEALTH_PORT}`);
+});
 
 const kafka = new Kafka({
   clientId: "order-service",
@@ -27,10 +51,13 @@ const run = async () => {
       fromBeginning: true,
     });
 
+    isReady = true;
+    console.log("Order Service: Connected to Kafka and subscribed to payment-successful");
+
     await consumer.run({
       eachMessage: async ({ topic, partition, message }) => {
         const value = message.value.toString();
-        const { userId, cart } = JSON.parse(value);
+        const { userId, cart, eventId } = JSON.parse(value);
 
         // Create order on real DB (Drizzle ORM)
         let orderId = "mock-order-id";
@@ -55,14 +82,31 @@ const run = async () => {
         await producer.send({
           topic: "order-successful",
           messages: [
-            { value: JSON.stringify({ userId, orderId }) },
+            { key: orderId !== "mock-order-id" ? orderId : userId, value: JSON.stringify({ userId, orderId, eventId }) },
           ],
         });
       },
     });
   } catch (err) {
-    console.log(err);
+    console.error("Order Service Kafka error:", err);
   }
 };
 
 run();
+
+// Graceful shutdown
+const shutdown = async () => {
+  console.log("Order Service: shutting down gracefully...");
+  isReady = false;
+  healthServer.close();
+  try {
+    await consumer.disconnect();
+    await producer.disconnect();
+  } catch (err) {
+    console.error("Order Service error during disconnect:", err);
+  }
+  process.exit(0);
+};
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

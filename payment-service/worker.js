@@ -18,6 +18,21 @@ const kafka = new Kafka({
 
 const producer = kafka.producer();
 
+let pollInterval = null;
+
+export const stopOutboxWorker = async () => {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  try {
+    await producer.disconnect();
+    console.log("Outbox Worker: Disconnected from Kafka");
+  } catch (err) {
+    console.error("Outbox Worker: Error disconnecting from Kafka", err);
+  }
+};
+
 export const startOutboxWorker = async () => {
   if (!process.env.DATABASE_URL) return;
 
@@ -25,8 +40,8 @@ export const startOutboxWorker = async () => {
     await producer.connect();
     console.log("Outbox Worker: Connected to Kafka");
 
-    // Poll every 5 seconds for unpublished events
-    setInterval(async () => {
+    // Poll every 3 seconds for unpublished events
+    pollInterval = setInterval(async () => {
       const events = await db
         .select()
         .from(outboxEvents)

@@ -1,54 +1,200 @@
 version: '3.8'
 
 services:
+  # -------------------------------------------------------------
+  # Persistence: PostgreSQL 16 (Local / Fallback Database)
+  # -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: streammart-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: streammart
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d streammart"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # -------------------------------------------------------------
+  # Message Broker: Apache Kafka (Single-Node KRaft Mode - No ZooKeeper)
+  # -------------------------------------------------------------
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: streammart-kafka
+    restart: unless-stopped
+    ports:
+      - "9094:9094" # External port for host test scripts and k6 benchmarks
+    environment:
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://0.0.0.0:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_KRAFT_CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
+    volumes:
+      - kafka_data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # -------------------------------------------------------------
+  # API Gateway: Reverse Proxy & JWT Auth Enforcement
+  # Only service exposed publicly alongside client
+  # -------------------------------------------------------------
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: streammart-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - JWT_SECRET=${JWT_SECRET:-streammart-super-secure-jwt-secret-key-32-bytes!}
+      - PAYMENT_SERVICE_URL=http://payment-service:8000
+    depends_on:
+      payment-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  # -------------------------------------------------------------
+  # Payment Service: Transactional Outbox Pattern
+  # Internal only: not exposed outside Docker Compose network
+  # -------------------------------------------------------------
   payment-service:
     build:
       context: ./payment-service
-    restart: always
-    ports:
-      - "8000:8000"
+    container_name: streammart-payment
+    restart: unless-stopped
     environment:
-      - DATABASE_URL=${DATABASE_URL}
+      - PORT=8000
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/streammart}
       - KAFKA_BROKERS=kafka:9092
-      - NODE_ENV=development
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
 
-
+  # -------------------------------------------------------------
+  # Order Service: Idempotent Event Consumer & Order Generator
+  # Internal only: not exposed outside Docker Compose network
+  # -------------------------------------------------------------
   order-service:
     build:
       context: ./order-service
-    restart: always
+    container_name: streammart-order
+    restart: unless-stopped
     environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
-      - KAFKA_SASL_USERNAME=${KAFKA_SASL_USERNAME}
-      - KAFKA_SASL_PASSWORD=${KAFKA_SASL_PASSWORD}
-      - NODE_EXTRA_CA_CERTS=/app/ca.pem
-    volumes:
-      - ./ca.pem:/app/ca.pem
+      - PORT=8001
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/streammart}
+      - KAFKA_BROKERS=kafka:9092
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8001/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
 
-
+  # -------------------------------------------------------------
+  # Email Service: Asynchronous Notification Dispatcher
+  # Internal only: not exposed outside Docker Compose network
+  # -------------------------------------------------------------
   email-service:
     build:
       context: ./email-service
-    restart: always
+    container_name: streammart-email
+    restart: unless-stopped
     environment:
-      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
-      - KAFKA_SASL_USERNAME=${KAFKA_SASL_USERNAME}
-      - KAFKA_SASL_PASSWORD=${KAFKA_SASL_PASSWORD}
+      - PORT=8002
+      - KAFKA_BROKERS=kafka:9092
+      - NODE_ENV=production
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8002/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
 
-
+  # -------------------------------------------------------------
+  # Analytic Service: Metrics Aggregator
+  # Internal only: not exposed outside Docker Compose network
+  # -------------------------------------------------------------
   analytic-service:
     build:
       context: ./analytic-service
-    restart: always
+    container_name: streammart-analytic
+    restart: unless-stopped
     environment:
-      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
-      - KAFKA_SASL_USERNAME=${KAFKA_SASL_USERNAME}
-      - KAFKA_SASL_PASSWORD=${KAFKA_SASL_PASSWORD}
+      - PORT=8003
+      - KAFKA_BROKERS=kafka:9092
+      - NODE_ENV=production
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8003/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
 
-
+  # -------------------------------------------------------------
+  # Frontend Client: Next.js 14 Web Application
+  # -------------------------------------------------------------
   client:
     build:
       context: ./client
+    container_name: streammart-client
+    restart: unless-stopped
     ports:
       - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  kafka_data:
