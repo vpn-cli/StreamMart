@@ -51,3 +51,4 @@ test("Analytic Service Idempotency & Unique Constraint Suite", async (t) => {
     assert.equal(recordedMetrics.length, 1, "Exactly one metric recorded despite duplicate message delivery");
   });
 });
+
