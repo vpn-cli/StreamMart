@@ -17,7 +17,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8080';
+const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8085';
 const DB_URL = process.env.DATABASE_URL;
 
 async function runCheckoutTest() {
