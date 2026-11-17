@@ -10,17 +10,19 @@ app.use(cors());
 // Health Check endpoint for Docker Compose & orchestration
 app.get("/health", (req, res) => res.status(200).send("API Gateway OK"));
 
-// Token issuing endpoint for clients, tests, and benchmarks
 const JWT_SECRET = process.env.JWT_SECRET || "streammart-super-secure-jwt-secret-key-32-bytes!";
 
+// Demo token issuing endpoint for clients, tests, and benchmarks.
+// SECURITY GUARD: Strictly disabled in production mode (NODE_ENV=production) or when DEMO_AUTH is not explicitly "true".
 app.post("/api/auth/token", express.json(), (req, res) => {
-  const userId = req.body?.userId || "user_demo_123";
-  const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
-  res.status(200).json({ token, userId });
-});
+  const isProduction = process.env.NODE_ENV === "production";
+  const allowDemoAuth = process.env.DEMO_AUTH === "true" && !isProduction;
 
-app.get("/api/auth/token", (req, res) => {
-  const userId = req.query.userId || "user_demo_123";
+  if (!allowDemoAuth) {
+    return res.status(404).json({ error: "Not Found" });
+  }
+
+  const userId = req.body?.userId || "user_demo_123";
   const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
   res.status(200).json({ token, userId });
 });
@@ -39,16 +41,23 @@ app.use(
   })
 );
 
+let server;
 const PORT = process.env.PORT || 8080;
-const server = app.listen(PORT, () => console.log(`🚀 API Gateway securely routing traffic on port ${PORT}`));
+if (process.env.NODE_ENV !== "test") {
+  server = app.listen(PORT, () => console.log(`🚀 API Gateway securely routing traffic on port ${PORT}`));
+}
 
 // Graceful shutdown handling
 const shutdown = () => {
   console.log("API Gateway: shutting down gracefully...");
-  server.close(() => {
-    console.log("API Gateway closed.");
+  if (server) {
+    server.close(() => {
+      console.log("API Gateway closed.");
+      process.exit(0);
+    });
+  } else {
     process.exit(0);
-  });
+  }
 };
 
 process.on("SIGTERM", shutdown);
