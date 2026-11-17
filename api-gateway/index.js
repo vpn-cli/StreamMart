@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import http from "node:http";
 import jwt from "jsonwebtoken";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { verifyToken } from "./auth.middleware.js";
@@ -11,6 +12,15 @@ app.use(cors());
 app.get("/health", (req, res) => res.status(200).send("API Gateway OK"));
 
 const JWT_SECRET = process.env.JWT_SECRET || "streammart-super-secure-jwt-secret-key-32-bytes!";
+
+// Reusable HTTP Agent with TCP keep-alive to avoid socket teardown and handshake overhead
+const paymentProxyHttpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 200,
+  maxFreeSockets: 50,
+  timeout: 60000,
+  keepAliveMsecs: 30000,
+});
 
 // Demo token issuing endpoint for clients, tests, and benchmarks.
 // SECURITY GUARD: Strictly disabled in production mode (NODE_ENV=production) or when DEMO_AUTH is not explicitly "true".
@@ -35,6 +45,7 @@ app.use(
   createProxyMiddleware({
     target: process.env.PAYMENT_SERVICE_URL || "http://payment-service:8000",
     changeOrigin: true,
+    agent: paymentProxyHttpAgent,
     pathRewrite: {
       "^/api/payment": "/payment",
       "^/?$": "/payment",
