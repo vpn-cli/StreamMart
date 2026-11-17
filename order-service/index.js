@@ -1,8 +1,10 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { Kafka } from "kafkajs";
 import { db } from "./db/index.js";
-import { orders, processedEvents } from "./db/schema.js";
+import { orders, outboxEvents, processedEvents } from "./db/schema.js";
 import { and, eq } from "drizzle-orm";
+import { startOrderOutboxWorker, stopOrderOutboxWorker } from "./worker.js";
 
 let isReady = false;
 let isShuttingDown = false;
@@ -55,6 +57,7 @@ const run = async () => {
         topic: "payment-successful",
         fromBeginning: true,
       });
+      await startOrderOutboxWorker();
       connected = true;
       isReady = true;
       console.log("Order Service: Connected to Kafka and subscribed to payment-successful");
@@ -72,7 +75,7 @@ const run = async () => {
       try {
         const rawValue = message.value.toString();
         const data = JSON.parse(rawValue);
-        const { userId, cart, eventId } = data;
+        const { userId, cart, eventId, correlationId, causationId } = data;
 
         // 1. Idempotency Check: if eventId has already been processed by order-service, skip side-effect
         if (process.env.DATABASE_URL && eventId) {
@@ -97,8 +100,9 @@ const run = async () => {
           }
         }
 
-        // 2. Atomic Order Creation + Idempotency Record with Exponential Backoff Retry
+        // 2. Atomic Order Creation + Outbox Event + Idempotency Record in ONE SQL transaction
         let orderId = null;
+        let isDuplicateViolation = false;
         const MAX_RETRIES = 3;
         let attempt = 0;
 
@@ -106,6 +110,11 @@ const run = async () => {
           while (attempt < MAX_RETRIES) {
             attempt++;
             try {
+              // Generate fresh eventId for downstream order-successful event
+              const orderEventId = crypto.randomUUID();
+              const rootCorrelationId = String(correlationId || eventId || orderEventId);
+              const directCausationId = String(eventId || rootCorrelationId);
+
               await db.transaction(async (tx) => {
                 const inserted = await tx
                   .insert(orders)
@@ -126,11 +135,39 @@ const run = async () => {
                     serviceName: "order-service",
                   });
                 }
+
+                // Outbox pattern: write order-successful outbox row in SAME transaction
+                await tx.insert(outboxEvents).values({
+                  id: orderEventId,
+                  topic: "order-successful",
+                  payload: {
+                    eventId: orderEventId,
+                    correlationId: rootCorrelationId,
+                    causationId: directCausationId,
+                    orderId,
+                    userId,
+                    items: cart || [],
+                  },
+                  published: false,
+                });
               });
 
               // Succeeded
               break;
             } catch (dbErr) {
+              // Item 4: Unique constraint violation (code 23505) indicates concurrent duplicate.
+              // Treat as "already processed, skip" without retrying and without sending to DLQ.
+              if (
+                dbErr.code === "23505" ||
+                dbErr.message?.includes("duplicate key") ||
+                dbErr.message?.includes("processed_events_pkey") ||
+                dbErr.message?.includes("unique constraint")
+              ) {
+                console.warn(`Order Service [Idempotency]: Unique constraint violation for event ID ${eventId}. Concurrent duplicate detected; skipping cleanly.`);
+                isDuplicateViolation = true;
+                break;
+              }
+
               console.error(`Order Service: DB write failed on attempt ${attempt}/${MAX_RETRIES}:`, dbErr.message);
               if (attempt < MAX_RETRIES) {
                 // Exponential backoff: 100ms, 200ms, 400ms
@@ -143,14 +180,19 @@ const run = async () => {
           orderId = `order_${Date.now()}`;
         }
 
-        // 3. Poison Message Handling (DLQ): If all retries fail, do NOT emit ghost order
+        // If concurrent duplicate skipped cleanly, return immediately
+        if (isDuplicateViolation) {
+          return;
+        }
+
+        // 3. Poison Message Handling (DLQ): If all retries fail (excluding unique constraint duplicate), route to DLQ
         if (!orderId) {
           console.error(`Order Service [POISON MESSAGE]: Failed to create order after ${MAX_RETRIES} attempts. Routing to payment-successful.DLQ`);
           await producer.send({
             topic: "payment-successful.DLQ",
             messages: [
               {
-                key: String(userId || "unknown"),
+                key: String(eventId || userId || "unknown"),
                 value: JSON.stringify({
                   originalPayload: data,
                   error: `Exhausted ${MAX_RETRIES} DB insert retries`,
@@ -167,22 +209,15 @@ const run = async () => {
           return;
         }
 
-        console.log(`Order Service: Order created successfully (ID: ${orderId}) for user: ${userId}`);
+        console.log(`Order Service: Order created successfully (ID: ${orderId}) for user: ${userId} with outbox event queued`);
 
-        // 4. Publish order-successful with partition key set to orderId
-        await producer.send({
-          topic: "order-successful",
-          messages: [
-            {
-              key: String(orderId),
-              value: JSON.stringify({ userId, orderId, eventId }),
-              headers: {
-                "event-id": String(eventId || ""),
-                "order-id": String(orderId),
-              },
-            },
-          ],
-        });
+        // Test crash hook: Kill order-service after DB commit but before publish to prove outbox recovery
+        if (process.env.TEST_CRASH_AFTER_DB_COMMIT === "true" || data.testCrashAfterDbCommit === true) {
+          console.warn("💥 [TEST HOOK]: Simulating immediate order-service crash after DB commit (before relay publish)!");
+          process.exit(99);
+        }
+
+        // Outbox relay will asynchronously publish order-successful from outbox_events with partition key = orderId
       } finally {
         inflightMessages = Math.max(0, inflightMessages - 1);
       }
@@ -213,6 +248,8 @@ const shutdown = async () => {
   }
 
   try {
+    await stopOrderOutboxWorker();
+    console.log("Order Service: Outbox worker stopped.");
     await consumer.disconnect();
     console.log("Order Service: Consumer disconnected.");
     await producer.disconnect();
