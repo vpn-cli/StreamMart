@@ -8,13 +8,20 @@ export default function CheckoutPage() {
   const handleCheckout = async () => {
     setStatus("processing");
     try {
+      // 1. Fetch a valid signed JWT from the API Gateway
+      const tokenRes = await fetch("http://localhost:8080/api/auth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "user_web_123" }),
+      });
+      const { token } = await tokenRes.json();
+
+      // 2. Dispatch checkout through API Gateway enforcing JWT authentication
       const response = await fetch("http://localhost:8080/api/payment", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // The API Gateway requires a standard Bearer token (JWT)
-          // In a real app we fetch this from NextAuth Auth
-          "Authorization": "Bearer mock.jwt.token", 
+          "Authorization": `Bearer ${token}`, 
         },
         body: JSON.stringify({
           cart: [{ id: 1, name: "Kafka Hoodie", price: 50 }],
