@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import crypto from "node:crypto";
 import { db } from "./db/index.js";
 import { payments, outboxEvents } from "./db/schema.js";
 import { startOutboxWorker, stopOutboxWorker } from "./worker.js";
@@ -21,6 +22,10 @@ const handlePayment = async (req, res) => {
     const amount = cart && Array.isArray(cart) ? cart.reduce((sum, item) => sum + (Number(item.price) || 10), 0) : 0;
     
     try {
+      // Generate unique eventId for the payment-successful event.
+      // As the root initiating event, correlationId and causationId match eventId.
+      const eventId = crypto.randomUUID();
+
       // Insert Payment & Outbox Event ATOMICALLY in a single SQL transaction
       await db.transaction(async (tx) => {
         await tx.insert(payments).values({
@@ -30,8 +35,16 @@ const handlePayment = async (req, res) => {
         });
         
         await tx.insert(outboxEvents).values({
+          id: eventId,
           topic: "payment-successful",
-          payload: { userId, cart: cart || [] },
+          payload: {
+            eventId,
+            correlationId: eventId,
+            causationId: eventId,
+            userId,
+            cart: cart || [],
+            amount: String(amount),
+          },
           published: false,
         });
       });

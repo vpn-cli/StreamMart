@@ -35,8 +35,9 @@ const processOutboxBatch = async () => {
   try {
     await db.transaction(async (tx) => {
       // 1. Concurrency-safe lock: claim up to 50 rows, skipping any locked by another worker
+      // Strictly filter to topic = 'payment-successful' for the payment service relay
       const rows = await tx.execute(
-        sql`SELECT id, topic, payload, created_at FROM outbox_events WHERE published = false ORDER BY created_at ASC LIMIT 50 FOR UPDATE SKIP LOCKED`
+        sql`SELECT id, topic, payload, created_at FROM outbox_events WHERE published = false AND topic = 'payment-successful' ORDER BY created_at ASC LIMIT 50 FOR UPDATE SKIP LOCKED`
       );
 
       const events = Array.from(rows || []);
@@ -49,14 +50,19 @@ const processOutboxBatch = async () => {
       for (const event of events) {
         const rawPayload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
 
-        // Guarantee eventId is included in the message for downstream idempotency
+        const eventId = String(rawPayload.eventId || event.id);
+        const correlationId = String(rawPayload.correlationId || eventId);
+        const causationId = String(rawPayload.causationId || eventId);
+
         const enrichedPayload = {
           ...rawPayload,
-          eventId: event.id,
+          eventId,
+          correlationId,
+          causationId,
         };
 
-        // Partition by orderId or userId to guarantee strict in-order delivery per entity
-        const partitionKey = String(enrichedPayload.orderId || enrichedPayload.userId || event.id);
+        // Deterministic partition key: userId (no fallback chains)
+        const partitionKey = String(enrichedPayload.userId);
 
         await producer.send({
           topic: event.topic,
@@ -65,7 +71,9 @@ const processOutboxBatch = async () => {
               key: partitionKey,
               value: JSON.stringify(enrichedPayload),
               headers: {
-                "event-id": String(event.id),
+                "event-id": eventId,
+                "correlation-id": correlationId,
+                "causation-id": causationId,
                 "event-type": String(event.topic),
               },
             },
