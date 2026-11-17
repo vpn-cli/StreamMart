@@ -23,3 +23,10 @@ CREATE TABLE IF NOT EXISTS "payments" (
 	"status" text NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS "processed_events" (
+	"event_id" text NOT NULL,
+	"service_name" text NOT NULL,
+	"processed_at" timestamp DEFAULT now() NOT NULL,
+	PRIMARY KEY ("event_id", "service_name")
+);

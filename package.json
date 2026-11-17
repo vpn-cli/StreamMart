@@ -4,9 +4,14 @@
   "description": "StreamMart: Enterprise Event-Driven E-Commerce Microservices",
   "type": "module",
   "scripts": {
-    "stack:up": "node scripts/start-stack.js",
+    "stack:up": "docker compose up -d --build --wait",
+    "stack:down": "docker compose down",
+    "stack:ps": "docker compose ps",
     "checkout:test": "node scripts/test-checkout.js",
+    "latency:test": "node scripts/measure-latency.js",
+    "test:gateway": "npm test --prefix api-gateway",
     "test:payment": "npm test --prefix payment-service",
+    "test": "npm test --prefix api-gateway && npm test --prefix payment-service",
     "db:migrate": "node payment-service/test-db.js"
   },
   "keywords": [
@@ -20,3 +25,4 @@
   "author": "Vipin",
   "license": "ISC"
 }
+
