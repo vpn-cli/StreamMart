@@ -1,4 +1,4 @@
-﻿# Cold-start benchmark for StreamMart Docker Compose cluster
+# Cold-start benchmark for StreamMart Docker Compose cluster
 Write-Host "=========================================================="
 Write-Host "⏱️ StreamMart: Measuring Docker Compose Cold-Start Time"
 Write-Host "=========================================================="
@@ -16,3 +16,4 @@ Write-Host "✅ Cold-Start Results:"
 Write-Host "   Total Seconds:       $([math]::Round($elapsed.TotalSeconds, 2)) s"
 Write-Host "   Total Milliseconds:  $($elapsed.TotalMilliseconds) ms"
 Write-Host "=========================================================="
+
