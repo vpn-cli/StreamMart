@@ -11,22 +11,18 @@ export const verifyToken = (req, res, next) => {
 
   const token = authHeader.split(" ")[1];
 
-  // Development bypass for Next.js frontend testing
-  if (token === "mock.jwt.token") {
-    req.user = { userId: "123" };
-    req.headers['x-user-id'] = "123";
-    return next();
-  }
-
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    if (!decoded || !decoded.userId) {
+      return res.status(403).json({ error: "Forbidden: Token missing userId payload" });
+    }
     req.user = decoded; 
     
-    // Pass the decoded user ID down to the microservices inside the header!
-    req.headers['x-user-id'] = decoded.userId || "123";
+    // Pass the decoded user ID down to internal microservices via header
+    req.headers['x-user-id'] = String(decoded.userId);
     
     next();
   } catch (error) {
-    return res.status(403).json({ error: "Forbidden: Invalid token" });
+    return res.status(403).json({ error: "Forbidden: Invalid or expired token" });
   }
 };

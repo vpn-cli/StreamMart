@@ -18,7 +18,10 @@ spec:
         imagePullPolicy: Never
         env:
         - name: DATABASE_URL
-          value: "postgresql://neondb_owner:npg_WZyLXSF6Orf8@ep-polished-art-axlsmvao.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+          valueFrom:
+            secretKeyRef:
+              name: streammart-secrets
+              key: DATABASE_URL
         - name: KAFKA_BROKERS
           value: "kafka:9092"
         ports:
@@ -56,7 +59,10 @@ spec:
         imagePullPolicy: Never
         env:
         - name: DATABASE_URL
-          value: "postgresql://neondb_owner:npg_WZyLXSF6Orf8@ep-polished-art-axlsmvao.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+          valueFrom:
+            secretKeyRef:
+              name: streammart-secrets
+              key: DATABASE_URL
         - name: KAFKA_BROKERS
           value: "kafka:9092"
 # API Gateway
@@ -82,7 +88,10 @@ spec:
         - name: PAYMENT_SERVICE_URL
           value: "http://payment-service:8000"
         - name: JWT_SECRET
-          value: "super-secret-development-key"
+          valueFrom:
+            secretKeyRef:
+              name: streammart-secrets
+              key: JWT_SECRET
         ports:
         - containerPort: 8080
 ---
