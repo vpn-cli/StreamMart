@@ -44,10 +44,8 @@ const handlePayment = async (req, res) => {
   return res.status(200).send("Payment processed and event safely queued in outbox.");
 };
 
-// Route handlers: supports consistent gateway routing, direct root, and legacy paths
-app.post("/", handlePayment);
+// Single authoritative payment route; aliases removed
 app.post("/payment", handlePayment);
-app.post("/payment-service", handlePayment);
 
 app.use((err, req, res, next) => {
   console.error("Payment Service Error:", err);

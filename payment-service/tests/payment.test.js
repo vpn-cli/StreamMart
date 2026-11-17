@@ -28,13 +28,27 @@ jest.unstable_mockModule("../db/index.js", () => {
 
 const { default: app } = await import("../index.js");
 
-describe("POST /payment-service", () => {
-  it("should output 200 upon successful payment processing and mock Kafka broadcast", async () => {
+describe("Payment Service Routing & Endpoints", () => {
+  it("POST /payment succeeds with 200 upon valid payment processing", async () => {
     const res = await request(app)
-      .post("/payment-service")
+      .post("/payment")
       .send({ cart: [{ price: 50 }, { price: 20 }] });
       
     expect(res.statusCode).toEqual(200);
-    expect(res.text).toBe("Payment processed and event broadcasted");
+    expect(res.text).toBe("Payment processed and event safely queued in outbox.");
+  });
+
+  it("POST /payment-service is removed and returns 404", async () => {
+    const res = await request(app)
+      .post("/payment-service")
+      .send({ cart: [] });
+    expect(res.statusCode).toEqual(404);
+  });
+
+  it("POST / is removed and returns 404", async () => {
+    const res = await request(app)
+      .post("/")
+      .send({ cart: [] });
+    expect(res.statusCode).toEqual(404);
   });
 });
