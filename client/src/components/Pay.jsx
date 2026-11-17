@@ -11,13 +11,14 @@ const Pay = ({ cart }) => {
   const { isPending, isError, mutate, data } = useMutation({
     mutationFn: async (cart) => {
       const startTime = Date.now();
+      const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || "http://localhost:8085";
       // Fetch a valid signed JWT from the API Gateway
-      const tokenRes = await axios.post("http://localhost:8080/api/auth/token", { userId: "user_client_ui" });
+      const tokenRes = await axios.post(`${gatewayUrl}/api/auth/token`, { userId: "user_client_ui" });
       const token = tokenRes.data.token;
 
-      // Route strictly through API Gateway on port 8080
+      // Route strictly through API Gateway
       const response = await axios.post(
-        "http://localhost:8080/api/payment",
+        `${gatewayUrl}/api/payment`,
         { cart },
         { headers: { Authorization: `Bearer ${token}` } }
       );

@@ -1,0 +1,22 @@
+{
+  "name": "streammart",
+  "version": "1.0.0",
+  "description": "StreamMart: Enterprise Event-Driven E-Commerce Microservices",
+  "type": "module",
+  "scripts": {
+    "stack:up": "node scripts/start-stack.js",
+    "checkout:test": "node scripts/test-checkout.js",
+    "test:payment": "npm test --prefix payment-service",
+    "db:migrate": "node payment-service/test-db.js"
+  },
+  "keywords": [
+    "kafka",
+    "microservices",
+    "transactional-outbox",
+    "postgresql",
+    "drizzle-orm",
+    "docker-compose"
+  ],
+  "author": "Vipin",
+  "license": "ISC"
+}

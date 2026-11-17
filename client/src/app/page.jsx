@@ -7,9 +7,10 @@ export default function CheckoutPage() {
 
   const handleCheckout = async () => {
     setStatus("processing");
+    const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || "http://localhost:8085";
     try {
       // 1. Fetch a valid signed JWT from the API Gateway
-      const tokenRes = await fetch("http://localhost:8080/api/auth/token", {
+      const tokenRes = await fetch(`${gatewayUrl}/api/auth/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: "user_web_123" }),
@@ -17,7 +18,7 @@ export default function CheckoutPage() {
       const { token } = await tokenRes.json();
 
       // 2. Dispatch checkout through API Gateway enforcing JWT authentication
-      const response = await fetch("http://localhost:8080/api/payment", {
+      const response = await fetch(`${gatewayUrl}/api/payment`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
