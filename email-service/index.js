@@ -2,16 +2,18 @@ import http from "node:http";
 import { Kafka } from "kafkajs";
 
 let isReady = false;
+let isShuttingDown = false;
+let inflightMessages = 0;
 
 // Health check server for container orchestration
 const healthServer = http.createServer((req, res) => {
   if (req.url === "/health") {
-    if (isReady) {
+    if (isReady && !isShuttingDown) {
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("Email Service OK");
     } else {
       res.writeHead(503, { "Content-Type": "text/plain" });
-      res.end("Email Service Starting...");
+      res.end(isShuttingDown ? "Email Service Shutting Down" : "Email Service Starting...");
     }
   } else {
     res.writeHead(404);
@@ -30,7 +32,7 @@ const kafka = new Kafka({
   ...(process.env.KAFKA_SASL_USERNAME && {
     ssl: true,
     sasl: {
-      mechanism: 'plain',
+      mechanism: "plain",
       username: process.env.KAFKA_SASL_USERNAME,
       password: process.env.KAFKA_SASL_PASSWORD,
     },
@@ -41,51 +43,85 @@ const producer = kafka.producer();
 const consumer = kafka.consumer({ groupId: "email-service" });
 
 const run = async () => {
-  try {
-    await producer.connect();
-    await consumer.connect();
-    await consumer.subscribe({
-      topic: "order-successful",
-      fromBeginning: true,
-    });
+  let connected = false;
+  while (!connected && !isShuttingDown) {
+    try {
+      await producer.connect();
+      await consumer.connect();
+      await consumer.subscribe({
+        topic: "order-successful",
+        fromBeginning: true,
+      });
+      connected = true;
+      isReady = true;
+      console.log("Email Service: Connected to Kafka and subscribed to order-successful");
+    } catch (err) {
+      console.warn("Email Service: Retrying Kafka connection/subscription in 2s...", err.message);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
 
-    isReady = true;
-    console.log("Email Service: Connected to Kafka and subscribed to order-successful");
+  if (isShuttingDown) return;
 
-    await consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
+  await consumer.run({
+    eachMessage: async ({ topic, partition, message }) => {
+      inflightMessages++;
+      try {
         const value = message.value.toString();
         const { userId, orderId, eventId } = JSON.parse(value);
 
         const dummyEmailId = `email_${Date.now()}`;
-        console.log(`Email consumer: Confirmation email sent to user id: ${userId} for order: ${orderId}`);
+        console.log(`Email consumer: Confirmation email dispatched to user ${userId} for order: ${orderId}`);
 
         await producer.send({
           topic: "email-successful",
           messages: [
-            { key: orderId ? String(orderId) : String(userId), value: JSON.stringify({ userId, emailId: dummyEmailId, orderId, eventId }) },
+            {
+              key: String(orderId || userId),
+              value: JSON.stringify({ userId, emailId: dummyEmailId, orderId, eventId }),
+              headers: {
+                "event-id": String(eventId || ""),
+                "order-id": String(orderId || ""),
+              },
+            },
           ],
         });
-      },
-    });
-  } catch (err) {
-    console.error("Email Service Kafka error:", err);
-  }
+      } finally {
+        inflightMessages = Math.max(0, inflightMessages - 1);
+      }
+    },
+  });
 };
 
-run();
+run().catch((err) => {
+  console.error("Email Service Kafka error:", err);
+});
 
 // Graceful shutdown
 const shutdown = async () => {
-  console.log("Email Service: shutting down gracefully...");
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   isReady = false;
+  console.log("Email Service: SIGTERM received. Initiating graceful shutdown...");
+
   healthServer.close();
+
+  const maxWait = 5000;
+  const start = Date.now();
+  while (inflightMessages > 0 && Date.now() - start < maxWait) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
   try {
     await consumer.disconnect();
+    console.log("Email Service: Consumer disconnected.");
     await producer.disconnect();
+    console.log("Email Service: Producer disconnected.");
   } catch (err) {
-    console.error("Email Service error during disconnect:", err);
+    console.error("Email Service error during disconnect:", err.message);
   }
+
+  console.log("Email Service: Graceful shutdown complete. Exiting cleanly.");
   process.exit(0);
 };
 

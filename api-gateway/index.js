@@ -36,7 +36,8 @@ app.use(
     target: process.env.PAYMENT_SERVICE_URL || "http://payment-service:8000",
     changeOrigin: true,
     pathRewrite: {
-      "^/api/payment": "/payment", 
+      "^/api/payment": "/payment",
+      "^/?$": "/payment",
     },
   })
 );
