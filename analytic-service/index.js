@@ -1,5 +1,8 @@
 import http from "node:http";
 import { Kafka } from "kafkajs";
+import { db } from "./db/index.js";
+import { processedEvents } from "./db/schema.js";
+import { and, eq } from "drizzle-orm";
 
 let isReady = false;
 let isShuttingDown = false;
@@ -67,29 +70,78 @@ const run = async () => {
       try {
         const value = message.value.toString();
         const data = JSON.parse(value);
+        const { eventId, correlationId, causationId } = data;
 
+        // 1. Consumer Idempotency Check: dedupe on incoming event's own eventId
+        if (db && eventId) {
+          try {
+            const existing = await db
+              .select()
+              .from(processedEvents)
+              .where(
+                and(
+                  eq(processedEvents.eventId, String(eventId)),
+                  eq(processedEvents.serviceName, "analytic-service")
+                )
+              )
+              .limit(1);
+
+            if (existing && existing.length > 0) {
+              console.warn(`Analytic Service [Idempotency]: Event ID ${eventId} already processed by analytic-service. Skipping duplicate metric aggregation.`);
+              return;
+            }
+          } catch (e) {
+            console.error("Analytic Service: Error querying processed_events:", e.message);
+          }
+        }
+
+        // 2. Aggregate / log event metrics
         switch (topic) {
           case "payment-successful": {
-            const { userId, cart, eventId } = data;
+            const { userId, cart } = data;
             const total = cart && Array.isArray(cart)
               ? cart.reduce((acc, item) => acc + (Number(item.price) || 0), 0).toFixed(2)
               : "0.00";
-            console.log(`Analytic consumer [payment-successful]: User ${userId} paid $${total} (Event: ${eventId || "n/a"})`);
+            console.log(`Analytic consumer [payment-successful]: User ${userId} paid $${total} (Event: ${eventId}, Corr: ${correlationId || eventId})`);
             break;
           }
           case "order-successful": {
-            const { userId, orderId, eventId } = data;
-            console.log(`Analytic consumer [order-successful]: Order ${orderId} confirmed for user ${userId} (Event: ${eventId || "n/a"})`);
+            const { userId, orderId } = data;
+            console.log(`Analytic consumer [order-successful]: Order ${orderId} confirmed for user ${userId} (Event: ${eventId}, Corr: ${correlationId}, Caus: ${causationId})`);
             break;
           }
           case "email-successful": {
-            const { userId, emailId, orderId, eventId } = data;
-            console.log(`Analytic consumer [email-successful]: Email ${emailId} dispatched to user ${userId} for order ${orderId}`);
+            const { userId, emailId, orderId } = data;
+            console.log(`Analytic consumer [email-successful]: Email ${emailId} dispatched to user ${userId} for order ${orderId} (Event: ${eventId})`);
             break;
           }
           default:
-            console.log(`Analytic consumer [${topic}]: Received event`);
+            console.log(`Analytic consumer [${topic}]: Received event ${eventId}`);
             break;
+        }
+
+        // 3. Atomically Record Idempotency in processed_events
+        if (db && eventId) {
+          try {
+            await db.insert(processedEvents).values({
+              eventId: String(eventId),
+              serviceName: "analytic-service",
+            });
+          } catch (dbErr) {
+            // Item 4: Unique constraint violation (code 23505) indicates concurrent duplicate.
+            // Treat as "already processed, skip" cleanly.
+            if (
+              dbErr.code === "23505" ||
+              dbErr.message?.includes("duplicate key") ||
+              dbErr.message?.includes("processed_events_pkey") ||
+              dbErr.message?.includes("unique constraint")
+            ) {
+              console.warn(`Analytic Service [Idempotency]: Unique constraint violation for event ID ${eventId}. Concurrent duplicate detected; skipping cleanly.`);
+              return;
+            }
+
+            console.error("Analytic Service: Failed to insert into processed_events:", dbErr.message);
+          }
         }
       } finally {
         inflightMessages = Math.max(0, inflightMessages - 1);
