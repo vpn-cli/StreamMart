@@ -11,7 +11,10 @@
     "latency:test": "node scripts/measure-latency.js",
     "test:gateway": "npm test --prefix api-gateway",
     "test:payment": "npm test --prefix payment-service",
-    "test": "npm test --prefix api-gateway && npm test --prefix payment-service",
+    "test:order": "npm test --prefix order-service",
+    "test:email": "npm test --prefix email-service",
+    "test:analytic": "npm test --prefix analytic-service",
+    "test": "npm test --prefix api-gateway && npm test --prefix payment-service && npm test --prefix order-service && npm test --prefix email-service && npm test --prefix analytic-service",
     "db:migrate": "node payment-service/test-db.js"
   },
   "keywords": [
