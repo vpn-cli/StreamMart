@@ -14,7 +14,7 @@ app.use(express.json());
 app.get("/health", (req, res) => res.status(200).send("Payment Service OK"));
 
 const handlePayment = async (req, res) => {
-  const { cart } = req.body || {};
+  const { cart, testCrashAfterDbCommit } = req.body || {};
   // The authenticated user ID is verified and injected by the API Gateway
   const userId = req.headers["x-user-id"] || "123";
 
@@ -44,6 +44,7 @@ const handlePayment = async (req, res) => {
             userId,
             cart: cart || [],
             amount: String(amount),
+            ...(testCrashAfterDbCommit && { testCrashAfterDbCommit: true }),
           },
           published: false,
         });
