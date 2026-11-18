@@ -133,7 +133,7 @@ async function runOutboxOutageTest() {
   for (let i = 0; i < 35; i++) {
     await sleep(1000);
     try {
-      const inspect = execSync("docker inspect --format='{{.State.Health.Status}}' streammart-kafka", { encoding: 'utf8' }).trim();
+      const inspect = execSync('docker inspect --format "{{.State.Health.Status}}" streammart-kafka', { encoding: 'utf8' }).trim();
       if (inspect === 'healthy') {
         kafkaReady = true;
         break;

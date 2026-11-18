@@ -52,3 +52,41 @@ jobs:
           cd analytic-service
           npm install
           npm test
+
+  docker-resilience-tests:
+    needs: unit-and-integration-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Start full stack with Docker Compose
+        run: docker compose up -d --build --wait
+
+      - name: Poison message fallback test (eachBatch)
+        run: node scripts/test-poison-batch.js
+
+      - name: Mid-batch crash recovery test (SIGKILL before offset commit)
+        run: node scripts/test-mid-batch-crash.js
+
+      - name: Order-service crash recovery test (kill between DB commit and publish)
+        run: node scripts/test-order-crash-recovery.js
+
+      - name: Kafka outage & concurrent SKIP LOCKED relay test (500 checkouts)
+        run: node scripts/test-outbox-outage.js
+
+      - name: Collect container status on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail=80
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v
