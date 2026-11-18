@@ -22,10 +22,24 @@ async function runTest() {
   const testUserId = `user_startup_${Date.now()}`;
   console.log(`Test user: ${testUserId}`);
 
-  // Step 1: Baseline
+  // Step 1: Clean reset for test isolation
+  console.log('[Step 1] Ensuring clean database and Kafka state for test isolation...');
+  execSync('docker exec streammart-postgres psql -U postgres -d streammart -c "TRUNCATE payments, orders, processed_events, outbox_events CASCADE;"', { stdio: 'inherit' });
+  const topics = ['payment-successful', 'order-successful', 'email-successful', 'payment-successful.DLQ'];
+  for (const topic of topics) {
+    try {
+      execSync(`docker exec streammart-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic ${topic}`, { stdio: 'pipe' });
+    } catch (_) {}
+    try {
+      execSync(`docker exec streammart-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic ${topic} --partitions 1 --replication-factor 1`, { stdio: 'pipe' });
+    } catch (_) {}
+  }
+  execSync('docker compose restart order-service email-service', { stdio: 'inherit' });
+  await sleep(3000);
+
   const baselinePayments = parseInt(queryDb('SELECT COUNT(*) FROM payments'), 10) || 0;
   const baselineOrders = parseInt(queryDb('SELECT COUNT(*) FROM orders'), 10) || 0;
-  console.log(`[Step 1] Baseline DB State: ${baselinePayments} payments, ${baselineOrders} orders`);
+  console.log(`   Baseline DB State: ${baselinePayments} payments, ${baselineOrders} orders`);
 
   // Step 2: Stop Kafka
   console.log('\n[Step 2] Stopping Kafka broker (docker stop streammart-kafka)...');
@@ -37,22 +51,35 @@ async function runTest() {
   execSync('docker restart streammart-payment', { stdio: 'inherit' });
   await sleep(3000);
 
-  // Step 4: Verify payment health check returns 503 while Kafka is down
-  console.log('\n[Step 4] Probing payment-service /health while Kafka is down...');
-  const healthCheckScript = `
+  // Step 4: Verify payment /health is 200 (liveness) and /relay-status is 503 (relay disconnected)
+  console.log('\n[Step 4] Probing payment-service /health and /relay-status while Kafka is down...');
+  const livenessScript = `
     fetch('http://localhost:8000/health')
       .then(async r => console.log(JSON.stringify({ status: r.status, text: await r.text() })))
       .catch(e => console.log(JSON.stringify({ error: e.message })));
   `.replace(/\n\s+/g, ' ');
 
-  const healthResRaw = queryPaymentService(healthCheckScript);
-  console.log(`   Health response: ${healthResRaw}`);
-  const healthRes = JSON.parse(healthResRaw);
+  const relayStatusScript = `
+    fetch('http://localhost:8000/relay-status')
+      .then(async r => console.log(JSON.stringify({ status: r.status, text: await r.text() })))
+      .catch(e => console.log(JSON.stringify({ error: e.message })));
+  `.replace(/\n\s+/g, ' ');
 
-  if (healthRes.status !== 503) {
-    throw new Error(`Expected health check 503 while Kafka is down, got: ${healthRes.status}`);
+  const livenessResRaw = queryPaymentService(livenessScript);
+  console.log(`   Liveness (/health) response: ${livenessResRaw}`);
+  const livenessRes = JSON.parse(livenessResRaw);
+
+  const relayResRaw = queryPaymentService(relayStatusScript);
+  console.log(`   Relay Status (/relay-status) response: ${relayResRaw}`);
+  const relayRes = JSON.parse(relayResRaw);
+
+  if (livenessRes.status !== 200) {
+    throw new Error(`Expected liveness check /health to return 200 while process is alive, got: ${livenessRes.status}`);
   }
-  console.log('✅ PASS: Health check returned 503 Service Unavailable because relay loop is not running.');
+  if (relayRes.status !== 503) {
+    throw new Error(`Expected /relay-status to return 503 while Kafka is down, got: ${relayRes.status}`);
+  }
+  console.log('✅ PASS: /health returned 200 (process alive) and /relay-status returned 503 (relay loop not connected to Kafka).');
 
   // Step 5: Submit payment while Kafka is down
   console.log('\n[Step 5] Submitting checkout to payment-service while Kafka is down...');
@@ -117,25 +144,25 @@ async function runTest() {
   }
   console.log('✅ Kafka broker is back ONLINE and HEALTHY.');
 
-  // Step 8: Verify payment health check transitions to 200 as retry connects
-  console.log('\n[Step 8] Waiting for payment relay retry loop to connect and health check to return 200...');
+  // Step 8: Verify payment /relay-status transitions to 200 as retry connects
+  console.log('\n[Step 8] Waiting for payment relay retry loop to connect and /relay-status to return 200...');
   let health200 = false;
   for (let i = 0; i < 20; i++) {
     await sleep(1000);
     try {
-      const res = JSON.parse(queryPaymentService(healthCheckScript));
+      const res = JSON.parse(queryPaymentService(relayStatusScript));
       if (res.status === 200) {
         health200 = true;
-        console.log(`   Health check returned 200 OK after ${i + 1}s! Message: "${res.text}"`);
+        console.log(`   /relay-status returned 200 OK after ${i + 1}s! Message: "${res.text}"`);
         break;
       }
     } catch (_) {}
   }
 
   if (!health200) {
-    throw new Error('Payment service health check failed to transition to 200 OK after Kafka restart');
+    throw new Error('Payment service /relay-status failed to transition to 200 OK after Kafka restart');
   }
-  console.log('✅ PASS: Health check successfully transitioned to 200 OK upon Kafka reconnection.');
+  console.log('✅ PASS: /relay-status successfully transitioned to 200 OK upon Kafka reconnection.');
 
   // Step 9: Confirm outbox delivery and order creation
   console.log('\n[Step 9] Confirming event delivery and downstream order processing...');

@@ -70,8 +70,14 @@ describe("Payment Service Routing & Endpoints", () => {
     expect(res.statusCode).toEqual(404);
   });
 
-  it("GET /health returns 503 when the relay loop is not running", async () => {
+  it("GET /health returns 200 while process is alive", async () => {
     const res = await request(app).get("/health");
+    expect(res.statusCode).toEqual(200);
+    expect(res.text).toBe("Payment Service OK");
+  });
+
+  it("GET /relay-status returns 503 when the relay loop is not running", async () => {
+    const res = await request(app).get("/relay-status");
     expect(res.statusCode).toEqual(503);
     expect(res.text).toBe("Payment Service Relay Loop Not Running");
   });

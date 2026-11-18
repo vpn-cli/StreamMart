@@ -10,13 +10,17 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Health Check for Docker Compose and Kubernetes probes
-// Returns 503 Service Unavailable if the outbox relay loop is not actively running
+// Liveness Check: returns 200 while the payment-service process is alive and responsive
 app.get("/health", (req, res) => {
+  return res.status(200).send("Payment Service OK");
+});
+
+// Relay Status Check: returns 200 if relay loop is active, 503 if disconnected from Kafka
+app.get("/relay-status", (req, res) => {
   if (!isRelayRunning()) {
     return res.status(503).send("Payment Service Relay Loop Not Running");
   }
-  return res.status(200).send("Payment Service OK");
+  return res.status(200).send("Payment Service Relay Running");
 });
 
 const handlePayment = async (req, res) => {
