@@ -81,7 +81,7 @@ services:
     environment:
       - PORT=8080
       - JWT_SECRET=${JWT_SECRET:-streammart-super-secure-jwt-secret-key-32-bytes!}
-      - PAYMENT_SERVICE_URL=http://payment-service:8000
+      - PAYMENT_SERVICE_URL=${PAYMENT_SERVICE_URL:-http://payment-service:8000}
       - PROXY_KEEP_ALIVE=${PROXY_KEEP_ALIVE:-false}
       - DEMO_AUTH=true
       - NODE_ENV=development

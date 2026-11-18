@@ -63,6 +63,7 @@ const processOutboxBatch = async () => {
       }
 
       const publishedIds = [];
+      const messagesByTopic = new Map();
 
       for (const event of events) {
         const rawPayload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
@@ -81,24 +82,31 @@ const processOutboxBatch = async () => {
         // Deterministic partition key: userId (no fallback chains)
         const partitionKey = String(enrichedPayload.userId);
 
-        await producer.send({
-          topic: event.topic,
-          messages: [
-            {
-              key: partitionKey,
-              value: JSON.stringify(enrichedPayload),
-              headers: {
-                "event-id": eventId,
-                "correlation-id": correlationId,
-                "causation-id": causationId,
-                "event-type": String(event.topic),
-              },
-            },
-          ],
+        if (!messagesByTopic.has(event.topic)) {
+          messagesByTopic.set(event.topic, []);
+        }
+
+        messagesByTopic.get(event.topic).push({
+          key: partitionKey,
+          value: JSON.stringify(enrichedPayload),
+          headers: {
+            "event-id": eventId,
+            "correlation-id": correlationId,
+            "causation-id": causationId,
+            "event-type": String(event.topic),
+          },
         });
 
         publishedIds.push(event.id);
         processedCount++;
+      }
+
+      // Batch publish messages per topic instead of sequential individual roundtrips
+      for (const [topic, messages] of messagesByTopic.entries()) {
+        await producer.send({
+          topic,
+          messages,
+        });
       }
 
       // Batch update all published events in a single SQL operation
