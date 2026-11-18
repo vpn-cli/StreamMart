@@ -1,11 +1,9 @@
 import http from "node:http";
-import crypto from "node:crypto";
-import { performance } from "node:perf_hooks";
 import { Kafka } from "kafkajs";
 import { db } from "./db/index.js";
 import { orders, outboxEvents, processedEvents } from "./db/schema.js";
-import { and, eq, inArray } from "drizzle-orm";
 import { startOrderOutboxWorker, stopOrderOutboxWorker } from "./worker.js";
+import { processOrderBatch, processSingleOrderMessage } from "./consumer-processor.js";
 
 let isReady = false;
 let isShuttingDown = false;
@@ -125,142 +123,51 @@ const run = async () => {
   const consumerMode = process.env.CONSUMER_MODE || "eachMessage"; // "eachMessage" or "eachBatch"
   console.log(`Order Service: Running consumer with mode=${consumerMode}, partitionsConsumedConcurrently=${partitionsConsumedConcurrently}`);
 
+  const tables = { orders, processedEvents, outboxEvents };
+
   if (consumerMode === "eachBatch") {
     await consumer.run({
       partitionsConsumedConcurrently,
-      eachBatch: async ({ batch, resolveOffset, heartbeat, isRunning, isStale }) => {
+      eachBatch: async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }) => {
         if (!isRunning() || isStale()) return;
         inflightMessages += batch.messages.length;
-        const t0 = performance.now();
-        let tIdemp = 0;
-        let tTx = 0;
 
         try {
-          const parsedItems = [];
-          for (const message of batch.messages) {
-            try {
-              const raw = message.value.toString();
-              const data = JSON.parse(raw);
-              parsedItems.push({
-                message,
-                data,
-                eventId: String(data.eventId || ""),
-                userId: String(data.userId || ""),
-                cart: data.cart || [],
-                correlationId: data.correlationId,
-                causationId: data.causationId,
-              });
-            } catch (parseErr) {
-              console.error("Order Service [JSON Error]:", parseErr.message);
-              resolveOffset(message.offset);
+          const result = await processOrderBatch({
+            batch,
+            resolveOffset,
+            heartbeat,
+            commitOffsetsIfNecessary,
+            isRunning,
+            isStale,
+            db,
+            producer,
+            tables,
+          });
+
+          if (result.processedCount > 0) {
+            const tTotal = result.tTotal || 0;
+            const tIdemp = result.tIdemp || 0;
+            const tTx = result.tTx || 0;
+            const tOverhead = Math.max(0, tTotal - tIdemp - tTx);
+            const perMsgTotal = tTotal / result.processedCount;
+            const perMsgIdemp = tIdemp / result.processedCount;
+            const perMsgTx = tTx / result.processedCount;
+            const perMsgOverhead = tOverhead / result.processedCount;
+
+            for (let i = 0; i < result.processedCount; i++) {
+              timingMetrics.total.push(perMsgTotal);
+              timingMetrics.idempotency.push(perMsgIdemp);
+              timingMetrics.tx.push(perMsgTx);
+              timingMetrics.overhead.push(perMsgOverhead);
             }
-          }
 
-          if (parsedItems.length === 0) return;
-
-          // 1. Bulk Idempotency check with IN query
-          const eventIds = parsedItems.map((p) => p.eventId).filter(Boolean);
-          let existingSet = new Set();
-          if (process.env.DATABASE_URL && eventIds.length > 0) {
-            const tIdemp0 = performance.now();
-            try {
-              const existing = await db
-                .select({ eventId: processedEvents.eventId })
-                .from(processedEvents)
-                .where(
-                  and(
-                    inArray(processedEvents.eventId, eventIds),
-                    eq(processedEvents.serviceName, "order-service")
-                  )
-                );
-              existingSet = new Set(existing.map((e) => e.eventId));
-            } catch (e) {
-              console.error("Order Service: Bulk idempotency check failed:", e.message);
-            }
-            tIdemp = performance.now() - tIdemp0;
-          }
-
-          // Filter out duplicates
-          const newItems = parsedItems.filter((p) => !existingSet.has(p.eventId));
-
-          // 2. Single SQL transaction for the entire batch of new orders
-          if (newItems.length > 0 && process.env.DATABASE_URL) {
-            const tTx0 = performance.now();
-            await db.transaction(async (tx) => {
-              // Bulk insert orders
-              const insertedOrders = await tx
-                .insert(orders)
-                .values(
-                  newItems.map((item) => ({
-                    userId: item.userId,
-                    items: item.cart,
-                    status: "processing",
-                  }))
-                )
-                .returning();
-
-              // Bulk insert processed_events
-              await tx
-                .insert(processedEvents)
-                .values(
-                  newItems.map((item) => ({
-                    eventId: item.eventId,
-                    serviceName: "order-service",
-                  }))
-                )
-                .onConflictDoNothing();
-
-              // Bulk insert outbox_events
-              await tx.insert(outboxEvents).values(
-                newItems.map((item, idx) => {
-                  const orderId = insertedOrders[idx]?.id;
-                  const orderEventId = crypto.randomUUID();
-                  const rootCorrelationId = String(item.correlationId || item.eventId || orderEventId);
-                  const directCausationId = String(item.eventId || rootCorrelationId);
-                  return {
-                    id: orderEventId,
-                    topic: "order-successful",
-                    payload: {
-                      eventId: orderEventId,
-                      correlationId: rootCorrelationId,
-                      causationId: directCausationId,
-                      orderId,
-                      userId: item.userId,
-                      items: item.cart,
-                    },
-                    published: false,
-                  };
-                })
+            if (timingMetrics.total.length % 200 < result.processedCount) {
+              const stats = getConsumerStats();
+              console.log(
+                `📊 [Order eachBatch N=${stats.sampleCount} msgs] Total avg=${stats.total.avg}ms/msg | DB Tx avg=${stats.tx.avg}ms/msg | Implied Rate=${stats.impliedThroughput} msgs/s`
               );
-            });
-            tTx = performance.now() - tTx0;
-          }
-
-          // 3. Mark offsets as resolved
-          for (const item of parsedItems) {
-            resolveOffset(item.message.offset);
-          }
-          await heartbeat();
-
-          const tTotal = performance.now() - t0;
-          const tOverhead = Math.max(0, tTotal - tIdemp - tTx);
-          const perMsgTotal = tTotal / parsedItems.length;
-          const perMsgIdemp = tIdemp / parsedItems.length;
-          const perMsgTx = tTx / parsedItems.length;
-          const perMsgOverhead = tOverhead / parsedItems.length;
-
-          for (let i = 0; i < parsedItems.length; i++) {
-            timingMetrics.total.push(perMsgTotal);
-            timingMetrics.idempotency.push(perMsgIdemp);
-            timingMetrics.tx.push(perMsgTx);
-            timingMetrics.overhead.push(perMsgOverhead);
-          }
-
-          if (timingMetrics.total.length % 200 < parsedItems.length) {
-            const stats = getConsumerStats();
-            console.log(
-              `📊 [Order eachBatch N=${stats.sampleCount} msgs] Total avg=${stats.total.avg}ms/msg | DB Tx avg=${stats.tx.avg}ms/msg | Implied Rate=${stats.impliedThroughput} msgs/s`
-            );
+            }
           }
         } finally {
           inflightMessages = Math.max(0, inflightMessages - batch.messages.length);
@@ -268,165 +175,35 @@ const run = async () => {
       },
     });
   } else {
-    // Sequential eachMessage processing (default mode)
+    // Sequential eachMessage processing
     await consumer.run({
       partitionsConsumedConcurrently,
       eachMessage: async ({ topic, partition, message }) => {
         inflightMessages++;
-        const t0 = performance.now();
-        let tIdemp = 0;
-        let tTx = 0;
         try {
-          const rawValue = message.value.toString();
-          const data = JSON.parse(rawValue);
-          const { userId, cart, eventId, correlationId, causationId } = data;
+          const result = await processSingleOrderMessage({
+            message,
+            topic,
+            partition,
+            db,
+            producer,
+            tables,
+          });
 
-          // 1. Idempotency Check: if eventId has already been processed by order-service, skip side-effect
-          if (process.env.DATABASE_URL && eventId) {
-            const tIdemp0 = performance.now();
-            try {
-              const existing = await db
-                .select()
-                .from(processedEvents)
-                .where(
-                  and(
-                    eq(processedEvents.eventId, String(eventId)),
-                    eq(processedEvents.serviceName, "order-service")
-                  )
-                )
-                .limit(1);
+          if (result.status === "created") {
+            const tTotal = result.tTotal || 0;
+            const tIdemp = result.tIdemp || 0;
+            const tTx = result.tTx || 0;
+            const tOverhead = Math.max(0, tTotal - tIdemp - tTx);
+            timingMetrics.total.push(tTotal);
+            timingMetrics.idempotency.push(tIdemp);
+            timingMetrics.tx.push(tTx);
+            timingMetrics.overhead.push(tOverhead);
 
-              tIdemp = performance.now() - tIdemp0;
-              if (existing && existing.length > 0) {
-                console.warn(`Order Service [Idempotency]: Event ID ${eventId} already processed by order-service. Skipping duplicate order creation.`);
-                return;
-              }
-            } catch (e) {
-              tIdemp = performance.now() - tIdemp0;
-              console.error("Order Service: Error querying processed_events:", e.message);
+            if (timingMetrics.total.length % 100 === 0) {
+              const stats = getConsumerStats();
+              console.log(`📊 [Order Consumer Breakdown N=${stats.sampleCount}] Total=${stats.total.avg}ms | DB Tx=${stats.tx.avg}ms (${((stats.tx.avg / stats.total.avg) * 100).toFixed(1)}%) | Idempotency SELECT=${stats.idempotency.avg}ms (${((stats.idempotency.avg / stats.total.avg) * 100).toFixed(1)}%) | CPU/Overhead=${stats.overhead.avg}ms | Implied Rate=${stats.impliedThroughput} msgs/s`);
             }
-          }
-
-          // 2. Atomic Order Creation + Outbox Event + Idempotency Record in ONE SQL transaction
-          let orderId = null;
-          let isDuplicateViolation = false;
-          const MAX_RETRIES = 3;
-          let attempt = 0;
-
-          if (process.env.DATABASE_URL) {
-            while (attempt < MAX_RETRIES) {
-              attempt++;
-              try {
-                // Generate fresh eventId for downstream order-successful event
-                const orderEventId = crypto.randomUUID();
-                const rootCorrelationId = String(correlationId || eventId || orderEventId);
-                const directCausationId = String(eventId || rootCorrelationId);
-
-                const tTx0 = performance.now();
-                await db.transaction(async (tx) => {
-                  const inserted = await tx
-                    .insert(orders)
-                    .values({
-                      userId: String(userId),
-                      items: cart || [],
-                      status: "processing",
-                    })
-                    .returning();
-
-                  if (inserted && inserted.length > 0) {
-                    orderId = inserted[0].id;
-                  }
-
-                  if (eventId) {
-                    await tx.insert(processedEvents).values({
-                      eventId: String(eventId),
-                      serviceName: "order-service",
-                    });
-                  }
-
-                  // Outbox pattern: write order-successful outbox row in SAME transaction
-                  await tx.insert(outboxEvents).values({
-                    id: orderEventId,
-                    topic: "order-successful",
-                    payload: {
-                      eventId: orderEventId,
-                      correlationId: rootCorrelationId,
-                      causationId: directCausationId,
-                      orderId,
-                      userId,
-                      items: cart || [],
-                    },
-                    published: false,
-                  });
-                });
-                tTx = performance.now() - tTx0;
-
-                // Succeeded
-                break;
-              } catch (dbErr) {
-                if (
-                  dbErr.code === "23505" ||
-                  dbErr.message?.includes("duplicate key") ||
-                  dbErr.message?.includes("processed_events_pkey") ||
-                  dbErr.message?.includes("unique constraint")
-                ) {
-                  console.warn(`Order Service [Idempotency]: Unique constraint violation for event ID ${eventId}. Concurrent duplicate detected; skipping cleanly.`);
-                  isDuplicateViolation = true;
-                  break;
-                }
-
-                console.error(`Order Service: DB write failed on attempt ${attempt}/${MAX_RETRIES}:`, dbErr.message);
-                if (attempt < MAX_RETRIES) {
-                  await new Promise((resolve) => setTimeout(resolve, 100 * Math.pow(2, attempt - 1)));
-                }
-              }
-            }
-          } else {
-            orderId = `order_${Date.now()}`;
-          }
-
-          if (isDuplicateViolation) {
-            return;
-          }
-
-          if (!orderId) {
-            console.error(`Order Service [POISON MESSAGE]: Failed to create order after ${MAX_RETRIES} attempts. Routing to payment-successful.DLQ`);
-            await producer.send({
-              topic: "payment-successful.DLQ",
-              messages: [
-                {
-                  key: String(eventId || userId || "unknown"),
-                  value: JSON.stringify({
-                    originalPayload: data,
-                    error: `Exhausted ${MAX_RETRIES} DB insert retries`,
-                    failedAt: new Date().toISOString(),
-                    eventId,
-                  }),
-                  headers: {
-                    "error-reason": "DB_INSERTION_EXHAUSTED",
-                    "original-event-id": String(eventId || ""),
-                  },
-                },
-              ],
-            });
-            return;
-          }
-
-          if (process.env.TEST_CRASH_AFTER_DB_COMMIT === "true" || data.testCrashAfterDbCommit === true) {
-            console.warn("💥 [TEST HOOK]: Simulating immediate order-service crash after DB commit (before relay publish)!");
-            process.exit(99);
-          }
-
-          const tTotal = performance.now() - t0;
-          const tOverhead = Math.max(0, tTotal - tIdemp - tTx);
-          timingMetrics.total.push(tTotal);
-          timingMetrics.idempotency.push(tIdemp);
-          timingMetrics.tx.push(tTx);
-          timingMetrics.overhead.push(tOverhead);
-
-          if (timingMetrics.total.length % 100 === 0) {
-            const stats = getConsumerStats();
-            console.log(`📊 [Order Consumer Breakdown N=${stats.sampleCount}] Total=${stats.total.avg}ms | DB Tx=${stats.tx.avg}ms (${((stats.tx.avg / stats.total.avg) * 100).toFixed(1)}%) | Idempotency SELECT=${stats.idempotency.avg}ms (${((stats.idempotency.avg / stats.total.avg) * 100).toFixed(1)}%) | CPU/Overhead=${stats.overhead.avg}ms | Implied Rate=${stats.impliedThroughput} msgs/s`);
           }
         } finally {
           inflightMessages = Math.max(0, inflightMessages - 1);
