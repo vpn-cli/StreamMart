@@ -8,6 +8,7 @@
     "stack:down": "docker compose down",
     "stack:ps": "docker compose ps",
     "checkout:test": "node scripts/test-checkout.js",
+    "demo:outage": "node scripts/demo-outage.js",
     "latency:test": "node scripts/measure-latency.js",
     "test:gateway": "npm test --prefix api-gateway",
     "test:payment": "npm test --prefix payment-service",
