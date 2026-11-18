@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,8 +23,25 @@ if (fs.existsSync(envPath)) {
 // Default environment settings
 env.PORT = env.PORT || '8080';
 env.PAYMENT_SERVICE_URL = env.PAYMENT_SERVICE_URL || 'http://localhost:8000';
-env.JWT_SECRET = env.JWT_SECRET || 'streammart-super-secure-jwt-secret-key-32-bytes!';
 env.KAFKA_BROKERS = env.KAFKA_BROKERS || 'localhost:9092';
+
+if (!env.JWT_SECRET) {
+  const generatedSecret = crypto.randomBytes(32).toString('hex');
+  env.JWT_SECRET = generatedSecret;
+  if (fs.existsSync(envPath)) {
+    const existing = fs.readFileSync(envPath, 'utf8');
+    if (/^\s*JWT_SECRET\s*=/m.test(existing)) {
+      const updated = existing.replace(/^\s*JWT_SECRET\s*=.*$/m, `JWT_SECRET=${generatedSecret}`);
+      fs.writeFileSync(envPath, updated, 'utf8');
+    } else {
+      const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+      fs.appendFileSync(envPath, `${prefix}JWT_SECRET=${generatedSecret}\n`, 'utf8');
+    }
+  } else {
+    fs.writeFileSync(envPath, `JWT_SECRET=${generatedSecret}\n`, 'utf8');
+  }
+  console.log(`🔑 Generated random JWT_SECRET and wrote it to ${envPath} (gitignored).`);
+}
 
 const gatewayPort = Number(env.PORT) || 8085;
 

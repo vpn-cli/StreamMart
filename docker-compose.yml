@@ -80,7 +80,7 @@ services:
       - "${PORT:-8085}:8080"
     environment:
       - PORT=8080
-      - JWT_SECRET=${JWT_SECRET:-streammart-super-secure-jwt-secret-key-32-bytes!}
+      - JWT_SECRET=${JWT_SECRET}
       - PAYMENT_SERVICE_URL=${PAYMENT_SERVICE_URL:-http://payment-service:8000}
       - PROXY_KEEP_ALIVE=${PROXY_KEEP_ALIVE:-true}
       - DEMO_AUTH=true
