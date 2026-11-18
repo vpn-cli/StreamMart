@@ -3,7 +3,7 @@ import jws from '../api-gateway/node_modules/jws/index.js';
 import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
-const secret = process.env.JWT_SECRET || 'streammart-super-secure-jwt-secret-key-32-bytes!';
+const secret = crypto.randomBytes(32).toString('hex');
 const keyObj = crypto.createSecretKey(Buffer.from(secret));
 const token = jwt.sign({ userId: 'k6_benchmark_user' }, secret, { expiresIn: '24h' });
 const iters = 10000;
