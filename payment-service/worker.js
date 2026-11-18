@@ -29,9 +29,8 @@ export const prunePublishedEvents = async (force = false) => {
   lastPruneTime = now;
 
   try {
-    const cutoffDate = new Date(now - OUTBOX_RETENTION_HOURS * 60 * 60 * 1000);
     const result = await db.execute(
-      sql`DELETE FROM outbox_events WHERE published = true AND topic = 'payment-successful' AND created_at < ${cutoffDate}`
+      sql`DELETE FROM outbox_events WHERE published = true AND topic = 'payment-successful' AND created_at < NOW() - INTERVAL '1 hour' * ${OUTBOX_RETENTION_HOURS}`
     );
     const deletedCount = result?.rowCount || 0;
     if (deletedCount > 0) {

@@ -108,6 +108,9 @@ services:
       - PORT=8000
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/streammart
       - DB_POOL_MAX=${DB_POOL_MAX:-10}
+      - RELAY_BATCH_SEND=${RELAY_BATCH_SEND:-true}
+      - RELAY_BUSY_PAUSE_MS=${RELAY_BUSY_PAUSE_MS:-25}
+      - OUTBOX_RETENTION_HOURS=${OUTBOX_RETENTION_HOURS:-1}
       - KAFKA_BROKERS=kafka:9092
       - NODE_ENV=production
     depends_on:
@@ -136,6 +139,10 @@ services:
     environment:
       - PORT=8001
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/streammart
+      - DB_POOL_MAX=${DB_POOL_MAX:-10}
+      - CONSUMER_MODE=${CONSUMER_MODE:-eachMessage}
+      - PARTITIONS_CONSUMED_CONCURRENTLY=${PARTITIONS_CONSUMED_CONCURRENTLY:-1}
+      - OUTBOX_RETENTION_HOURS=${OUTBOX_RETENTION_HOURS:-1}
       - KAFKA_BROKERS=kafka:9092
       - NODE_ENV=production
     depends_on:
@@ -164,6 +171,7 @@ services:
     environment:
       - PORT=8002
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/streammart
+      - OUTBOX_RETENTION_HOURS=${OUTBOX_RETENTION_HOURS:-1}
       - KAFKA_BROKERS=kafka:9092
       - NODE_ENV=production
     depends_on:

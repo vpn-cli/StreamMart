@@ -46,8 +46,13 @@ function resetPostgres() {
   );
 }
 
-function resetKafkaTopics(numPartitions = 1) {
-  console.log(`>>> [Clean Reset] Recreating Kafka application topics with ${numPartitions} partition(s)...`);
+async function resetKafkaTopics(numPartitions = 1) {
+  console.log(`>>> [Clean Reset] Stopping app containers before Kafka topic reset...`);
+  try {
+    execSync('docker compose stop api-gateway payment-service order-service email-service analytic-service', { stdio: 'inherit' });
+  } catch (_) {}
+
+  console.log(`>>> [Clean Reset] Deleting and recreating Kafka application topics with ${numPartitions} partition(s)...`);
   const topics = ['payment-successful', 'order-successful', 'email-successful', 'payment-successful.DLQ'];
   for (const topic of topics) {
     try {
@@ -56,12 +61,26 @@ function resetKafkaTopics(numPartitions = 1) {
         { stdio: 'pipe' }
       );
     } catch (_) {}
-    try {
-      execSync(
-        `docker exec streammart-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic ${topic} --partitions ${numPartitions} --replication-factor 1`,
-        { stdio: 'pipe' }
-      );
-    } catch (_) {}
+  }
+
+  // Wait for Kafka async topic deletion to complete
+  await sleep(4000);
+
+  for (const topic of topics) {
+    execSync(
+      `docker exec streammart-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic ${topic} --partitions ${numPartitions} --replication-factor 1`,
+      { stdio: 'inherit' }
+    );
+  }
+
+  // Verify partition count on payment-successful
+  const desc = execSync(
+    'docker exec streammart-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic payment-successful',
+    { encoding: 'utf8' }
+  );
+  console.log(`>>> [Kafka Verification] payment-successful:\n${desc.trim()}`);
+  if (!desc.includes(`PartitionCount: ${numPartitions}`)) {
+    throw new Error(`Expected PartitionCount: ${numPartitions} for payment-successful, got:\n${desc}`);
   }
 }
 
@@ -88,13 +107,13 @@ async function deployExperiment(experimentName) {
     concurrency = '1';
   }
 
-  // 1. Reset Postgres and Kafka topics
+  // 1. Reset Kafka topics (stops app containers first) and Postgres
+  await resetKafkaTopics(numPartitions);
   resetPostgres();
-  resetKafkaTopics(numPartitions);
 
-  // 2. Deploy services with target configuration
+  // 2. Deploy services with target configuration (force-recreate to guarantee env vars apply)
   console.log(`>>> Deploying containers: consumerMode=${consumerMode}, partitionsConsumedConcurrently=${concurrency}, partitions=${numPartitions}...`);
-  execSync('docker compose up -d --build api-gateway payment-service order-service email-service analytic-service', {
+  execSync('docker compose up -d --build --force-recreate api-gateway payment-service order-service email-service analytic-service', {
     stdio: 'inherit',
     env: {
       ...process.env,
@@ -133,9 +152,18 @@ async function deployExperiment(experimentName) {
       if (allHealthy) {
         console.log('>>> All services healthy and ready!');
         await sleep(3000);
+        // Verify order-service consumer config from logs
+        const orderLogs = execSync('docker logs streammart-order 2>&1', { encoding: 'utf8' });
+        const expectedMarker = `mode=${consumerMode}, partitionsConsumedConcurrently=${concurrency}`;
+        if (!orderLogs.includes(expectedMarker)) {
+          throw new Error(`Order service did not start with expected config "${expectedMarker}". Logs:\n${orderLogs.slice(-800)}`);
+        }
+        console.log(`>>> [Order Verification] Confirmed: ${expectedMarker}`);
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      if (e.message && e.message.includes('Order service did not start')) throw e;
+    }
   }
   throw new Error('Timed out waiting for services to become healthy');
 }
@@ -234,12 +262,15 @@ async function runExperiment(experimentName) {
       const ordersBefore = parseInt(queryDb('SELECT COUNT(*) FROM orders;') || '0', 10);
       const paymentsBefore = parseInt(queryDb('SELECT COUNT(*) FROM payments;') || '0', 10);
       if (paymentsBefore !== ordersBefore) {
-        console.warn(`    ⚠️ Warning: Prior run had leftover difference! Payments=${paymentsBefore}, Orders=${ordersBefore}. Draining...`);
-        await waitForConsumerCatchup(paymentsBefore - ordersBefore, ordersBefore, 30000);
+        console.warn(`    ⚠️ Warning: Prior run had leftover difference! Payments=${paymentsBefore}, Orders=${ordersBefore}. Draining completely...`);
+        await waitForConsumerCatchup(paymentsBefore - ordersBefore, ordersBefore, 180000);
       }
 
       const runOrdersBefore = parseInt(queryDb('SELECT COUNT(*) FROM orders;') || '0', 10);
       const runPaymentsBefore = parseInt(queryDb('SELECT COUNT(*) FROM payments;') || '0', 10);
+      if (runPaymentsBefore !== runOrdersBefore) {
+        throw new Error(`Cannot start Measured Run ${r}: leftover lag still exists (Payments=${runPaymentsBefore}, Orders=${runOrdersBefore})`);
+      }
 
       // Run 30s k6 load
       const k6Metrics = await runK6(vus, '30s', summaryFile, rawFile);
@@ -254,13 +285,14 @@ async function runExperiment(experimentName) {
       console.log(`\n    [30s Window Snapshot] Accepted Payments: ${acceptedPayments} | Orders Created During 30s: ${ordersDuring30s} | End-of-Run Consumer Lag: ${consumerLagAt30s}`);
 
       // Wait until orders count == accepted payments (Kafka consumer lag = 0)
-      const catchup = await waitForConsumerCatchup(acceptedPayments, runOrdersBefore, 180000);
+      const catchup = await waitForConsumerCatchup(acceptedPayments, runOrdersBefore, 300000);
 
       const totalCompletedOrders = catchup.ordersProcessed;
-      const totalTimeSec = (k6Metrics.reqCount / (k6Metrics.rps || 1)) + catchup.drainSec;
+      const runDurationSec = k6Metrics.reqCount / (k6Metrics.rps || 1);
+      const totalTimeSec = runDurationSec + catchup.drainSec;
       const completedThroughput = totalCompletedOrders / totalTimeSec;
 
-      console.log(`    [Run ${r} Result] Accepted: ${k6Metrics.rps.toFixed(2)} req/s | Completed: ${completedThroughput.toFixed(2)} checkouts/s (Lag reached 0 in ${catchup.drainSec}s)`);
+      console.log(`    [Run ${r} Result] Accepted: ${k6Metrics.rps.toFixed(2)} req/s | Completed: ${completedThroughput.toFixed(2)} checkouts/s (Lag reached 0 in ${catchup.drainSec}s, timedOut=${catchup.timedOut})`);
 
       measuredRuns.push({
         run: r,
@@ -270,6 +302,7 @@ async function runExperiment(experimentName) {
         completedCount: totalCompletedOrders,
         consumerLagAt30s: consumerLagAt30s,
         timeToReachZero: catchup.drainSec,
+        timedOut: catchup.timedOut,
         p50: k6Metrics.p50,
         p95: k6Metrics.p95,
         errorRate: k6Metrics.errorRate,
@@ -307,6 +340,8 @@ async function runExperiment(experimentName) {
 async function main() {
   const exps = targetExperiment === 'all'
     ? ['baseline_consumer', 'fix_a', 'fix_b']
+    : targetExperiment === 'fixes'
+    ? ['fix_a', 'fix_b']
     : [targetExperiment];
 
   for (const exp of exps) {
