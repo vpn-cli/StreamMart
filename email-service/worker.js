@@ -44,6 +44,7 @@ export const processEmailOutboxBatch = async () => {
       }
 
       const publishedIds = [];
+      const messages = [];
 
       for (const event of events) {
         const rawPayload = typeof event.payload === "string" ? JSON.parse(event.payload) : event.payload;
@@ -64,25 +65,27 @@ export const processEmailOutboxBatch = async () => {
         // Deterministic partition key: orderId (strictly 1 key, no fallback chains)
         const partitionKey = String(orderId);
 
-        await producer.send({
-          topic: event.topic,
-          messages: [
-            {
-              key: partitionKey,
-              value: JSON.stringify(enrichedPayload),
-              headers: {
-                "event-id": eventId,
-                "correlation-id": correlationId,
-                "causation-id": causationId,
-                "order-id": orderId,
-                "event-type": String(event.topic),
-              },
-            },
-          ],
+        messages.push({
+          key: partitionKey,
+          value: JSON.stringify(enrichedPayload),
+          headers: {
+            "event-id": eventId,
+            "correlation-id": correlationId,
+            "causation-id": causationId,
+            "order-id": orderId,
+            "event-type": String(event.topic),
+          },
         });
 
         publishedIds.push(event.id);
         processedCount++;
+      }
+
+      if (messages.length > 0) {
+        await producer.send({
+          topic: "email-successful",
+          messages,
+        });
       }
 
       if (publishedIds.length > 0) {

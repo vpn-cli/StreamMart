@@ -3,5 +3,6 @@ import postgres from 'postgres';
 import * as schema from './schema.js';
 
 const connectionString = process.env.DATABASE_URL;
-const client = connectionString ? postgres(connectionString, { prepare: false }) : null;
+const poolMax = parseInt(process.env.DB_POOL_MAX || '10', 10);
+const client = connectionString ? postgres(connectionString, { max: poolMax, prepare: false }) : null;
 export const db = client ? drizzle(client, { schema }) : null;

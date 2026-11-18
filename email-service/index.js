@@ -1,10 +1,9 @@
 import http from "node:http";
-import crypto from "node:crypto";
 import { Kafka } from "kafkajs";
 import { db } from "./db/index.js";
 import { outboxEvents, processedEvents } from "./db/schema.js";
-import { and, eq } from "drizzle-orm";
 import { startEmailOutboxWorker, stopEmailOutboxWorker } from "./worker.js";
+import { processEmailBatch, processSingleEmailMessage } from "./consumer-processor.js";
 
 let isReady = false;
 let isShuttingDown = false;
@@ -28,10 +27,12 @@ const healthServer = http.createServer((req, res) => {
 
 const HEALTH_PORT = process.env.PORT || 8002;
 healthServer.listen(HEALTH_PORT, () => {
+  const effectivePoolMax = parseInt(process.env.DB_POOL_MAX || "10", 10);
+  const effectiveConsumerMode = process.env.EMAIL_CONSUMER_MODE || process.env.CONSUMER_MODE || "eachBatch";
   const effectiveRetentionHours = parseInt(process.env.OUTBOX_RETENTION_HOURS || "1", 10);
   console.log(`🚀 Email service health server listening on port ${HEALTH_PORT}`);
   console.log(
-    `[EFFECTIVE CONFIG] email-service: PORT=${HEALTH_PORT}, OUTBOX_RETENTION_HOURS=${effectiveRetentionHours}, KAFKA_BROKERS=${process.env.KAFKA_BROKERS || "localhost:9092"}`
+    `[EFFECTIVE CONFIG] email-service: PORT=${HEALTH_PORT}, DB_POOL_MAX=${effectivePoolMax}, CONSUMER_MODE=${effectiveConsumerMode}, OUTBOX_RETENTION_HOURS=${effectiveRetentionHours}, KAFKA_BROKERS=${process.env.KAFKA_BROKERS || "localhost:9092"}`
   );
 });
 
@@ -73,99 +74,47 @@ const run = async () => {
 
   if (isShuttingDown) return;
 
-  await consumer.run({
-    eachMessage: async ({ topic, partition, message }) => {
-      inflightMessages++;
-      try {
-        const value = message.value.toString();
-        const data = JSON.parse(value);
-        const { userId, orderId, eventId, correlationId, causationId } = data;
+  const consumerMode = process.env.EMAIL_CONSUMER_MODE || process.env.CONSUMER_MODE || "eachBatch";
+  const tables = { processedEvents, outboxEvents };
+  console.log(`Email Service: Running consumer with mode=${consumerMode}`);
 
-        // 1. Consumer Idempotency Check: dedupe on incoming event's own eventId
-        if (db && eventId) {
-          try {
-            const existing = await db
-              .select()
-              .from(processedEvents)
-              .where(
-                and(
-                  eq(processedEvents.eventId, String(eventId)),
-                  eq(processedEvents.serviceName, "email-service")
-                )
-              )
-              .limit(1);
-
-            if (existing && existing.length > 0) {
-              console.warn(`Email Service [Idempotency]: Event ID ${eventId} already processed by email-service. Skipping duplicate email dispatch.`);
-              return;
-            }
-          } catch (e) {
-            console.error("Email Service: Error querying processed_events:", e.message);
-          }
+  if (consumerMode === "eachBatch") {
+    await consumer.run({
+      eachBatch: async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }) => {
+        if (!isRunning() || isStale()) return;
+        inflightMessages += batch.messages.length;
+        try {
+          await processEmailBatch({
+            batch,
+            resolveOffset,
+            heartbeat,
+            commitOffsetsIfNecessary,
+            isRunning,
+            isStale,
+            db,
+            tables,
+          });
+        } finally {
+          inflightMessages = Math.max(0, inflightMessages - batch.messages.length);
         }
-
-        // 2. Perform External Side-Effect (Sending Email)
-        // Architectural Decision (Item 3):
-        // We record "processed" AFTER sending the email rather than before.
-        // Trade-off: If we recorded "processed" BEFORE sending, a crash during email dispatch
-        // causes a permanent MISSED EMAIL (the customer never receives confirmation).
-        // By recording "processed" AFTER sending, a crash causes a DUPLICATE EMAIL upon redelivery.
-        // In transactional e-commerce, a duplicate order receipt is strictly preferable to a missed receipt.
-        const dummyEmailId = `email_${Date.now()}`;
-        console.log(`Email Service: Confirmation email dispatched to user ${userId} for order: ${orderId} (Email ID: ${dummyEmailId})`);
-
-        // 3. Atomically Record Idempotency & Queue Outbox Event for email-successful
-        if (db) {
-          const newEmailEventId = crypto.randomUUID();
-          const rootCorrelationId = String(correlationId || eventId || newEmailEventId);
-          const directCausationId = String(eventId || rootCorrelationId);
-
-          try {
-            await db.transaction(async (tx) => {
-              if (eventId) {
-                await tx.insert(processedEvents).values({
-                  eventId: String(eventId),
-                  serviceName: "email-service",
-                });
-              }
-
-              await tx.insert(outboxEvents).values({
-                id: newEmailEventId,
-                topic: "email-successful",
-                payload: {
-                  eventId: newEmailEventId,
-                  correlationId: rootCorrelationId,
-                  causationId: directCausationId,
-                  orderId,
-                  userId,
-                  emailId: dummyEmailId,
-                },
-                published: false,
-              });
-            });
-            console.log(`Email Service: Outbox event queued for email-successful (Event ID: ${newEmailEventId})`);
-          } catch (dbErr) {
-            // Item 4: Unique constraint violation (code 23505) indicates concurrent duplicate.
-            // Treat as "already processed, skip" without retrying and without sending to DLQ.
-            if (
-              dbErr.code === "23505" ||
-              dbErr.message?.includes("duplicate key") ||
-              dbErr.message?.includes("processed_events_pkey") ||
-              dbErr.message?.includes("unique constraint")
-            ) {
-              console.warn(`Email Service [Idempotency]: Unique constraint violation for event ID ${eventId}. Concurrent duplicate detected; skipping cleanly.`);
-              return;
-            }
-
-            console.error("Email Service: Failed to record processed_events / outbox in DB:", dbErr.message);
-            throw dbErr;
-          }
+      },
+    });
+  } else {
+    await consumer.run({
+      eachMessage: async ({ message }) => {
+        inflightMessages++;
+        try {
+          await processSingleEmailMessage({
+            message,
+            db,
+            tables,
+          });
+        } finally {
+          inflightMessages = Math.max(0, inflightMessages - 1);
         }
-      } finally {
-        inflightMessages = Math.max(0, inflightMessages - 1);
-      }
-    },
-  });
+      },
+    });
+  }
 };
 
 run().catch((err) => {

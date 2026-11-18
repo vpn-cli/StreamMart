@@ -82,7 +82,7 @@ services:
       - PORT=8080
       - JWT_SECRET=${JWT_SECRET:-streammart-super-secure-jwt-secret-key-32-bytes!}
       - PAYMENT_SERVICE_URL=${PAYMENT_SERVICE_URL:-http://payment-service:8000}
-      - PROXY_KEEP_ALIVE=${PROXY_KEEP_ALIVE:-false}
+      - PROXY_KEEP_ALIVE=${PROXY_KEEP_ALIVE:-true}
       - DEMO_AUTH=true
       - NODE_ENV=development
     depends_on:
@@ -107,7 +107,7 @@ services:
     environment:
       - PORT=8000
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/streammart
-      - DB_POOL_MAX=${DB_POOL_MAX:-10}
+      - DB_POOL_MAX=${DB_POOL_MAX:-30}
       - RELAY_BATCH_SEND=${RELAY_BATCH_SEND:-true}
       - RELAY_BUSY_PAUSE_MS=${RELAY_BUSY_PAUSE_MS:-25}
       - OUTBOX_RETENTION_HOURS=${OUTBOX_RETENTION_HOURS:-1}
@@ -139,8 +139,8 @@ services:
     environment:
       - PORT=8001
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/streammart
-      - DB_POOL_MAX=${DB_POOL_MAX:-10}
-      - CONSUMER_MODE=${CONSUMER_MODE:-eachMessage}
+      - DB_POOL_MAX=${DB_POOL_MAX:-30}
+      - CONSUMER_MODE=${CONSUMER_MODE:-eachBatch}
       - PARTITIONS_CONSUMED_CONCURRENTLY=${PARTITIONS_CONSUMED_CONCURRENTLY:-1}
       - OUTBOX_RETENTION_HOURS=${OUTBOX_RETENTION_HOURS:-1}
       - KAFKA_BROKERS=kafka:9092
@@ -171,6 +171,8 @@ services:
     environment:
       - PORT=8002
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/streammart
+      - DB_POOL_MAX=${DB_POOL_MAX:-30}
+      - EMAIL_CONSUMER_MODE=${EMAIL_CONSUMER_MODE:-eachBatch}
       - OUTBOX_RETENTION_HOURS=${OUTBOX_RETENTION_HOURS:-1}
       - KAFKA_BROKERS=kafka:9092
       - NODE_ENV=production
@@ -200,6 +202,8 @@ services:
     environment:
       - PORT=8003
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/streammart
+      - DB_POOL_MAX=${DB_POOL_MAX:-30}
+      - ANALYTIC_CONSUMER_MODE=${ANALYTIC_CONSUMER_MODE:-eachBatch}
       - KAFKA_BROKERS=kafka:9092
       - NODE_ENV=production
     depends_on:
