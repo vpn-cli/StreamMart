@@ -205,6 +205,10 @@ function runK6(vus, duration, summaryFile, rawFile) {
       if (code !== 0) return reject(new Error(`k6 exited with code ${code}`));
 
       const summary = JSON.parse(fs.readFileSync(summaryFile, 'utf8'));
+      if (summary.setup_data) {
+        delete summary.setup_data;
+        fs.writeFileSync(summaryFile, JSON.stringify(summary, null, 2) + '\n', 'utf8');
+      }
       const reqCount = summary.metrics.http_reqs?.count || 0;
       const rps = summary.metrics.http_reqs?.rate || 0;
       const p50 = summary.metrics.http_req_duration?.med || 0;

@@ -72,7 +72,7 @@ async function runCheckoutTest() {
   // 3. Verify Database Persistence (Payments & Outbox Events)
   if (DB_URL) {
     console.log('\n[Step 3] Verifying Database persistence in PostgreSQL...');
-    const sql = postgres(DB_URL, { ssl: DB_URL.includes('neon.tech') ? 'require' : false, max: 1 });
+    const sql = postgres(DB_URL, { ssl: DB_URL.includes('sslmode=require') ? 'require' : false, max: 1 });
     
     try {
       // Check Payment record
