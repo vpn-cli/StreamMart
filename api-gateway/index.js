@@ -4,14 +4,13 @@ import http from "node:http";
 import jwt from "jsonwebtoken";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { verifyToken } from "./auth.middleware.js";
+import { JWT_SECRET } from "./config.js";
 
 const app = express();
 app.use(cors());
 
 // Health Check endpoint for Docker Compose & orchestration
 app.get("/health", (req, res) => res.status(200).send("API Gateway OK"));
-
-const JWT_SECRET = process.env.JWT_SECRET || "streammart-super-secure-jwt-secret-key-32-bytes!";
 
 // Reusable HTTP Agent with TCP keep-alive to avoid socket teardown and handshake overhead
 const enableKeepAlive = process.env.PROXY_KEEP_ALIVE === "true";
