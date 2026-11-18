@@ -14,13 +14,16 @@ app.get("/health", (req, res) => res.status(200).send("API Gateway OK"));
 const JWT_SECRET = process.env.JWT_SECRET || "streammart-super-secure-jwt-secret-key-32-bytes!";
 
 // Reusable HTTP Agent with TCP keep-alive to avoid socket teardown and handshake overhead
-const paymentProxyHttpAgent = new http.Agent({
-  keepAlive: true,
-  maxSockets: 200,
-  maxFreeSockets: 50,
-  timeout: 60000,
-  keepAliveMsecs: 30000,
-});
+const enableKeepAlive = process.env.PROXY_KEEP_ALIVE === "true";
+const paymentProxyHttpAgent = enableKeepAlive
+  ? new http.Agent({
+      keepAlive: true,
+      maxSockets: 200,
+      maxFreeSockets: 50,
+      timeout: 60000,
+      keepAliveMsecs: 30000,
+    })
+  : false;
 
 // Demo token issuing endpoint for clients, tests, and benchmarks.
 // SECURITY GUARD: Strictly disabled in production mode (NODE_ENV=production) or when DEMO_AUTH is not explicitly "true".

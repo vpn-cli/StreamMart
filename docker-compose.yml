@@ -82,6 +82,7 @@ services:
       - PORT=8080
       - JWT_SECRET=${JWT_SECRET:-streammart-super-secure-jwt-secret-key-32-bytes!}
       - PAYMENT_SERVICE_URL=http://payment-service:8000
+      - PROXY_KEEP_ALIVE=${PROXY_KEEP_ALIVE:-false}
       - DEMO_AUTH=true
       - NODE_ENV=development
     depends_on:
@@ -106,7 +107,7 @@ services:
     environment:
       - PORT=8000
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/streammart
-      - DB_POOL_MAX=30
+      - DB_POOL_MAX=${DB_POOL_MAX:-10}
       - KAFKA_BROKERS=kafka:9092
       - NODE_ENV=production
     depends_on:
