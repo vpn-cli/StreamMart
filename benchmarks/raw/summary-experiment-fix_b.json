@@ -1,0 +1,238 @@
+{
+  "20": {
+    "runs": [
+      {
+        "run": 1,
+        "acceptedRate": 252.55165683749925,
+        "completedRate": 250.58737073955803,
+        "acceptedCount": 7860,
+        "completedCount": 7860,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.24,
+        "timedOut": false,
+        "p50": 22.4962,
+        "p95": 56.4901,
+        "errorRate": 0
+      },
+      {
+        "run": 2,
+        "acceptedRate": 246.76327681344404,
+        "completedRate": 244.8388477382772,
+        "acceptedCount": 7662,
+        "completedCount": 7662,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.24,
+        "timedOut": false,
+        "p50": 22.5201,
+        "p95": 58.741479999999974,
+        "errorRate": 0
+      },
+      {
+        "run": 3,
+        "acceptedRate": 260.03340946212364,
+        "completedRate": 258.08294633855405,
+        "acceptedCount": 8046,
+        "completedCount": 8046,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.23,
+        "timedOut": false,
+        "p50": 20.2871,
+        "p95": 52.50977999999998,
+        "errorRate": 0
+      }
+    ],
+    "summary": {
+      "acceptedRate": {
+        "mean": 253.1161143710223,
+        "min": 246.76327681344404,
+        "max": 260.03340946212364
+      },
+      "completedRate": {
+        "mean": 251.1697216054631,
+        "min": 244.8388477382772,
+        "max": 258.08294633855405
+      },
+      "consumerLagAt30s": {
+        "mean": 0,
+        "min": 0,
+        "max": 0
+      },
+      "timeToReachZero": {
+        "mean": 0.23666666666666666,
+        "min": 0.23,
+        "max": 0.24
+      },
+      "p50": {
+        "mean": 21.767799999999998,
+        "min": 20.2871,
+        "max": 22.5201
+      },
+      "p95": {
+        "mean": 55.91378666666665,
+        "min": 52.50977999999998,
+        "max": 58.741479999999974
+      }
+    }
+  },
+  "50": {
+    "runs": [
+      {
+        "run": 1,
+        "acceptedRate": 391.51036972954273,
+        "completedRate": 388.348142164459,
+        "acceptedCount": 12143,
+        "completedCount": 12143,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.25,
+        "timedOut": false,
+        "p50": 68.58695,
+        "p95": 127.70579000000002,
+        "errorRate": 0
+      },
+      {
+        "run": 2,
+        "acceptedRate": 335.84246571946017,
+        "completedRate": 333.0130865493323,
+        "acceptedCount": 10395,
+        "completedCount": 10395,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.26,
+        "timedOut": false,
+        "p50": 85.3989,
+        "p95": 169.13959999999997,
+        "errorRate": 0
+      },
+      {
+        "run": 3,
+        "acceptedRate": 389.0480025351839,
+        "completedRate": 385.4134318707646,
+        "acceptedCount": 12070,
+        "completedCount": 12070,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.29,
+        "timedOut": false,
+        "p50": 68.0193,
+        "p95": 125.588,
+        "errorRate": 0
+      }
+    ],
+    "summary": {
+      "acceptedRate": {
+        "mean": 372.1336126613956,
+        "min": 335.84246571946017,
+        "max": 391.51036972954273
+      },
+      "completedRate": {
+        "mean": 368.92488686151864,
+        "min": 333.0130865493323,
+        "max": 388.348142164459
+      },
+      "consumerLagAt30s": {
+        "mean": 0,
+        "min": 0,
+        "max": 0
+      },
+      "timeToReachZero": {
+        "mean": 0.26666666666666666,
+        "min": 0.25,
+        "max": 0.29
+      },
+      "p50": {
+        "mean": 74.00171666666667,
+        "min": 68.0193,
+        "max": 85.3989
+      },
+      "p95": {
+        "mean": 140.81113000000002,
+        "min": 125.588,
+        "max": 169.13959999999997
+      }
+    }
+  },
+  "100": {
+    "runs": [
+      {
+        "run": 1,
+        "acceptedRate": 383.8176517298617,
+        "completedRate": 380.51444770391015,
+        "acceptedCount": 12053,
+        "completedCount": 12053,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.27,
+        "timedOut": false,
+        "p50": 176.6354,
+        "p95": 393.7101650000001,
+        "errorRate": 0
+      },
+      {
+        "run": 2,
+        "acceptedRate": 354.89211212770323,
+        "completedRate": 349.94608174036733,
+        "acceptedCount": 11119,
+        "completedCount": 11119,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.44,
+        "timedOut": false,
+        "p50": 188.8449,
+        "p95": 390.6495,
+        "errorRate": 0
+      },
+      {
+        "run": 3,
+        "acceptedRate": 399.7492493660774,
+        "completedRate": 396.7859540641746,
+        "acceptedCount": 12445,
+        "completedCount": 12445,
+        "consumerLagAt30s": 0,
+        "timeToReachZero": 0.23,
+        "timedOut": false,
+        "p50": 169.9332,
+        "p95": 340.01734999999996,
+        "errorRate": 0
+      }
+    ],
+    "summary": {
+      "acceptedRate": {
+        "mean": 379.4863377412141,
+        "min": 354.89211212770323,
+        "max": 399.7492493660774
+      },
+      "completedRate": {
+        "mean": 375.74882783615067,
+        "min": 349.94608174036733,
+        "max": 396.7859540641746
+      },
+      "consumerLagAt30s": {
+        "mean": 0,
+        "min": 0,
+        "max": 0
+      },
+      "timeToReachZero": {
+        "mean": 0.3133333333333333,
+        "min": 0.23,
+        "max": 0.44
+      },
+      "p50": {
+        "mean": 178.47116666666668,
+        "min": 169.9332,
+        "max": 188.8449
+      },
+      "p95": {
+        "mean": 374.79233833333336,
+        "min": 340.01734999999996,
+        "max": 393.7101650000001
+      }
+    }
+  },
+  "_effectiveConfig": {
+    "numPartitions": 1,
+    "consumerMode": "eachBatch",
+    "partitionsConsumedConcurrently": 1,
+    "containerStartupLogs": {
+      "streammart-gateway": "[EFFECTIVE CONFIG] api-gateway: PORT=8080, PAYMENT_SERVICE_URL=http://payment-service:8000, PROXY_KEEP_ALIVE=true, NODE_ENV=development",
+      "streammart-payment": "[EFFECTIVE CONFIG] payment-service: PORT=8000, DB_POOL_MAX=30, RELAY_BATCH_SEND=true, RELAY_BUSY_PAUSE_MS=25, OUTBOX_RETENTION_HOURS=1, KAFKA_BROKERS=kafka:9092",
+      "streammart-order": "[EFFECTIVE CONFIG] order-service: PORT=8001, DB_POOL_MAX=30, CONSUMER_MODE=eachBatch, PARTITIONS_CONSUMED_CONCURRENTLY=1, OUTBOX_RETENTION_HOURS=1, KAFKA_BROKERS=kafka:9092",
+      "streammart-email": "[EFFECTIVE CONFIG] email-service: PORT=8002, OUTBOX_RETENTION_HOURS=1, KAFKA_BROKERS=kafka:9092"
+    }
+  }
+}
