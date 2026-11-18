@@ -18,6 +18,32 @@ const kafka = new Kafka({
 
 const producer = kafka.producer();
 
+const OUTBOX_RETENTION_HOURS = parseInt(process.env.OUTBOX_RETENTION_HOURS || "1", 10);
+let lastPruneTime = 0;
+const PRUNE_INTERVAL_MS = 60 * 1000;
+
+export const prunePublishedEvents = async (force = false) => {
+  if (!db) return 0;
+  const now = Date.now();
+  if (!force && now - lastPruneTime < PRUNE_INTERVAL_MS) return 0;
+  lastPruneTime = now;
+
+  try {
+    const cutoffDate = new Date(now - OUTBOX_RETENTION_HOURS * 60 * 60 * 1000);
+    const result = await db.execute(
+      sql`DELETE FROM outbox_events WHERE published = true AND topic = 'payment-successful' AND created_at < ${cutoffDate}`
+    );
+    const deletedCount = result?.rowCount || 0;
+    if (deletedCount > 0) {
+      console.log(`Outbox Pruner: Deleted ${deletedCount} published outbox events older than ${OUTBOX_RETENTION_HOURS} hour(s).`);
+    }
+    return deletedCount;
+  } catch (err) {
+    console.error("Outbox Pruner: Prune operation failed:", err.message);
+    return 0;
+  }
+};
+
 let shouldRun = false;
 let isRunning = false;
 let isConnected = false;
@@ -101,12 +127,24 @@ const processOutboxBatch = async () => {
         processedCount++;
       }
 
-      // Batch publish messages per topic instead of sequential individual roundtrips
-      for (const [topic, messages] of messagesByTopic.entries()) {
-        await producer.send({
-          topic,
-          messages,
-        });
+      if (process.env.RELAY_BATCH_SEND === "true") {
+        // Batch publish messages per topic in single network request
+        for (const [topic, messages] of messagesByTopic.entries()) {
+          await producer.send({
+            topic,
+            messages,
+          });
+        }
+      } else {
+        // Sequential publish (original baseline behavior)
+        for (const [topic, messages] of messagesByTopic.entries()) {
+          for (const msg of messages) {
+            await producer.send({
+              topic,
+              messages: [msg],
+            });
+          }
+        }
       }
 
       // Batch update all published events in a single SQL operation
@@ -163,13 +201,16 @@ const runLoop = async () => {
       const processedCount = await processOutboxBatch();
       if (!shouldRun) break;
 
-      // If events were processed, immediately check for more; otherwise wait 500ms
-      if (processedCount === 0) {
-        await new Promise((resolve) => {
-          retryTimer = setTimeout(resolve, 500);
-        });
-        retryTimer = null;
-      }
+      // 3. Periodically prune published outbox events older than OUTBOX_RETENTION_HOURS
+      await prunePublishedEvents();
+
+      // If events were processed, apply busy pause; otherwise wait 500ms
+      const busyPause = parseInt(process.env.RELAY_BUSY_PAUSE_MS || "25", 10);
+      const delay = processedCount === 0 ? 500 : busyPause;
+      await new Promise((resolve) => {
+        retryTimer = setTimeout(resolve, delay);
+      });
+      retryTimer = null;
     } catch (err) {
       console.error("Outbox Worker: Unexpected loop error:", err.message || err);
       if (

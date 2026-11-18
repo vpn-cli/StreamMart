@@ -37,12 +37,14 @@ jest.unstable_mockModule("../db/index.js", () => {
           values: jest.fn()
         };
         return cb(mockTx);
-      })
+      }),
+      execute: jest.fn().mockResolvedValue({ rowCount: 5 }),
     }
   };
 });
 
 const { default: app } = await import("../index.js");
+const { prunePublishedEvents } = await import("../worker.js");
 
 describe("Payment Service Routing & Endpoints", () => {
   it("POST /payment succeeds with 200 upon valid payment processing", async () => {
@@ -72,5 +74,10 @@ describe("Payment Service Routing & Endpoints", () => {
     const res = await request(app).get("/health");
     expect(res.statusCode).toEqual(503);
     expect(res.text).toBe("Payment Service Relay Loop Not Running");
+  });
+
+  it("prunePublishedEvents deletes published events older than retention cutoff", async () => {
+    const deleted = await prunePublishedEvents(true);
+    expect(deleted).toBe(5);
   });
 });
