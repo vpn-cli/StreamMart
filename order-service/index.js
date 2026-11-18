@@ -1,5 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { Kafka } from "kafkajs";
 import { db } from "./db/index.js";
 import { orders, outboxEvents, processedEvents } from "./db/schema.js";
@@ -10,7 +11,48 @@ let isReady = false;
 let isShuttingDown = false;
 let inflightMessages = 0;
 
-// Health check server for container orchestration
+// High-resolution timing metrics buffer
+const timingMetrics = {
+  total: [],
+  idempotency: [],
+  tx: [],
+  overhead: [],
+};
+
+export function getConsumerStats() {
+  const calc = (arr) => {
+    if (arr.length === 0) return { avg: 0, p50: 0, p95: 0, min: 0, max: 0 };
+    const sorted = [...arr].sort((a, b) => a - b);
+    const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+    const p50 = sorted[Math.floor(sorted.length * 0.5)];
+    const p95 = sorted[Math.floor(sorted.length * 0.95)];
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    return {
+      avg: Number(avg.toFixed(2)),
+      p50: Number(p50.toFixed(2)),
+      p95: Number(p95.toFixed(2)),
+      min: Number(min.toFixed(2)),
+      max: Number(max.toFixed(2)),
+    };
+  };
+
+  const total = calc(timingMetrics.total);
+  const idempotency = calc(timingMetrics.idempotency);
+  const tx = calc(timingMetrics.tx);
+  const overhead = calc(timingMetrics.overhead);
+
+  return {
+    sampleCount: timingMetrics.total.length,
+    total,
+    idempotency,
+    tx,
+    overhead,
+    impliedThroughput: total.avg > 0 ? Number((1000 / total.avg).toFixed(2)) : 0,
+  };
+}
+
+// Health check server for container orchestration & metrics
 const healthServer = http.createServer((req, res) => {
   if (req.url === "/health") {
     if (isReady && !isShuttingDown) {
@@ -20,6 +62,9 @@ const healthServer = http.createServer((req, res) => {
       res.writeHead(503, { "Content-Type": "text/plain" });
       res.end(isShuttingDown ? "Order Service Shutting Down" : "Order Service Starting...");
     }
+  } else if (req.url === "/consumer-stats") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(getConsumerStats(), null, 2));
   } else {
     res.writeHead(404);
     res.end();
@@ -72,6 +117,9 @@ const run = async () => {
   await consumer.run({
     eachMessage: async ({ topic, partition, message }) => {
       inflightMessages++;
+      const t0 = performance.now();
+      let tIdemp = 0;
+      let tTx = 0;
       try {
         const rawValue = message.value.toString();
         const data = JSON.parse(rawValue);
@@ -79,6 +127,7 @@ const run = async () => {
 
         // 1. Idempotency Check: if eventId has already been processed by order-service, skip side-effect
         if (process.env.DATABASE_URL && eventId) {
+          const tIdemp0 = performance.now();
           try {
             const existing = await db
               .select()
@@ -91,11 +140,13 @@ const run = async () => {
               )
               .limit(1);
 
+            tIdemp = performance.now() - tIdemp0;
             if (existing && existing.length > 0) {
               console.warn(`Order Service [Idempotency]: Event ID ${eventId} already processed by order-service. Skipping duplicate order creation.`);
               return;
             }
           } catch (e) {
+            tIdemp = performance.now() - tIdemp0;
             console.error("Order Service: Error querying processed_events:", e.message);
           }
         }
@@ -115,6 +166,7 @@ const run = async () => {
               const rootCorrelationId = String(correlationId || eventId || orderEventId);
               const directCausationId = String(eventId || rootCorrelationId);
 
+              const tTx0 = performance.now();
               await db.transaction(async (tx) => {
                 const inserted = await tx
                   .insert(orders)
@@ -151,6 +203,7 @@ const run = async () => {
                   published: false,
                 });
               });
+              tTx = performance.now() - tTx0;
 
               // Succeeded
               break;
@@ -218,6 +271,17 @@ const run = async () => {
         }
 
         // Outbox relay will asynchronously publish order-successful from outbox_events with partition key = orderId
+        const tTotal = performance.now() - t0;
+        const tOverhead = Math.max(0, tTotal - tIdemp - tTx);
+        timingMetrics.total.push(tTotal);
+        timingMetrics.idempotency.push(tIdemp);
+        timingMetrics.tx.push(tTx);
+        timingMetrics.overhead.push(tOverhead);
+
+        if (timingMetrics.total.length % 100 === 0) {
+          const stats = getConsumerStats();
+          console.log(`📊 [Order Consumer Breakdown N=${stats.sampleCount}] Total=${stats.total.avg}ms | DB Tx=${stats.tx.avg}ms (${((stats.tx.avg / stats.total.avg) * 100).toFixed(1)}%) | Idempotency SELECT=${stats.idempotency.avg}ms (${((stats.idempotency.avg / stats.total.avg) * 100).toFixed(1)}%) | CPU/Overhead=${stats.overhead.avg}ms | Implied Rate=${stats.impliedThroughput} msgs/s`);
+        }
       } finally {
         inflightMessages = Math.max(0, inflightMessages - 1);
       }
