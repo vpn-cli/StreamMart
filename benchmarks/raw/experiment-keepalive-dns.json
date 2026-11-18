@@ -1,0 +1,50 @@
+[
+  {
+    "scenario": "keepalive_off_hostname",
+    "config": {
+      "keepAlive": false,
+      "targetUrl": "http://payment-service:8000"
+    },
+    "vus": 20,
+    "durationSec": 31.31,
+    "acceptedReqs": 4227,
+    "acceptedRate": 139.76,
+    "p50": 79.63,
+    "p95": 168.05,
+    "gatewayActiveOpens": 4236,
+    "paymentPassiveOpens": 4235,
+    "newConnectionsPerSec": 135.28
+  },
+  {
+    "scenario": "keepalive_off_container_ip",
+    "config": {
+      "keepAlive": false,
+      "targetUrl": "http://172.18.0.3:8000"
+    },
+    "vus": 20,
+    "durationSec": 30.92,
+    "acceptedReqs": 5730,
+    "acceptedRate": 190.18,
+    "p50": 43.69,
+    "p95": 96.15,
+    "gatewayActiveOpens": 5739,
+    "paymentPassiveOpens": 5738,
+    "newConnectionsPerSec": 185.6
+  },
+  {
+    "scenario": "keepalive_on_hostname",
+    "config": {
+      "keepAlive": true,
+      "targetUrl": "http://payment-service:8000"
+    },
+    "vus": 20,
+    "durationSec": 30.87,
+    "acceptedReqs": 6615,
+    "acceptedRate": 219.56,
+    "p50": 32.32,
+    "p95": 78.03,
+    "gatewayActiveOpens": 34,
+    "paymentPassiveOpens": 35,
+    "newConnectionsPerSec": 1.1
+  }
+]

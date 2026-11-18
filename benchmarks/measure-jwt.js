@@ -1,5 +1,5 @@
-import jwt from 'jsonwebtoken';
-import jws from 'jws';
+import jwt from '../api-gateway/node_modules/jsonwebtoken/index.js';
+import jws from '../api-gateway/node_modules/jws/index.js';
 import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 

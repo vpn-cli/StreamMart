@@ -1,0 +1,82 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: benchmarks/gateway-load.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 20 max VUs, 40s max duration (incl. graceful stop):
+              * default: 20 looping VUs for 10s (gracefulStop: 30s)
+
+
+running (01.0s), 20/20 VUs, 61 complete and 0 interrupted iterations
+default   [   9% ] 20 VUs  00.9s/10s
+
+running (02.0s), 20/20 VUs, 176 complete and 0 interrupted iterations
+default   [  19% ] 20 VUs  01.9s/10s
+
+running (03.0s), 20/20 VUs, 316 complete and 0 interrupted iterations
+default   [  29% ] 20 VUs  02.9s/10s
+
+running (04.0s), 20/20 VUs, 416 complete and 0 interrupted iterations
+default   [  39% ] 20 VUs  03.9s/10s
+
+running (05.0s), 20/20 VUs, 526 complete and 0 interrupted iterations
+default   [  49% ] 20 VUs  04.9s/10s
+
+running (06.0s), 20/20 VUs, 548 complete and 0 interrupted iterations
+default   [  59% ] 20 VUs  05.9s/10s
+
+running (07.0s), 20/20 VUs, 627 complete and 0 interrupted iterations
+default   [  69% ] 20 VUs  06.9s/10s
+
+running (08.0s), 20/20 VUs, 710 complete and 0 interrupted iterations
+default   [  79% ] 20 VUs  07.9s/10s
+
+running (09.0s), 20/20 VUs, 786 complete and 0 interrupted iterations
+default   [  89% ] 20 VUs  08.9s/10s
+
+running (10.0s), 20/20 VUs, 847 complete and 0 interrupted iterations
+default   [  99% ] 20 VUs  09.9s/10s
+
+
+  █ THRESHOLDS 
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 875     84.646/s
+    checks_succeeded...: 100.00% 875 out of 875
+    checks_failed......: 0.00%   0 out of 875
+
+    ✓ status is 200
+
+    HTTP
+    http_req_duration..............: avg=177.03ms min=22.09ms med=138.03ms max=957.84ms p(90)=307.2ms  p(95)=435.22ms
+      { expected_response:true }...: avg=177.03ms min=22.09ms med=138.03ms max=957.84ms p(90)=307.2ms  p(95)=435.22ms
+    http_req_failed................: 0.00%  0 out of 876
+    http_reqs......................: 876    84.742738/s
+
+    EXECUTION
+    iteration_duration.............: avg=232.02ms min=73.56ms med=192.27ms max=1s       p(90)=366.55ms p(95)=495.81ms
+    iterations.....................: 875    84.646/s
+    vus............................: 20     min=20       max=20
+    vus_max........................: 20     min=20       max=20
+
+    NETWORK
+    data_received..................: 249 kB 24 kB/s
+    data_sent......................: 406 kB 39 kB/s
+
+
+
+
+running (10.3s), 00/20 VUs, 875 complete and 0 interrupted iterations
+default ✓ [ 100% ] 20 VUs  10s
