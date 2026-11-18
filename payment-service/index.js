@@ -3,7 +3,7 @@ import cors from "cors";
 import crypto from "node:crypto";
 import { db } from "./db/index.js";
 import { payments, outboxEvents } from "./db/schema.js";
-import { startOutboxWorker, stopOutboxWorker } from "./worker.js";
+import { startOutboxWorker, stopOutboxWorker, isRelayRunning } from "./worker.js";
 
 const app = express();
 
@@ -11,7 +11,13 @@ app.use(cors());
 app.use(express.json());
 
 // Health Check for Docker Compose and Kubernetes probes
-app.get("/health", (req, res) => res.status(200).send("Payment Service OK"));
+// Returns 503 Service Unavailable if the outbox relay loop is not actively running
+app.get("/health", (req, res) => {
+  if (!isRelayRunning()) {
+    return res.status(503).send("Payment Service Relay Loop Not Running");
+  }
+  return res.status(200).send("Payment Service OK");
+});
 
 const handlePayment = async (req, res) => {
   const { cart, testCrashAfterDbCommit } = req.body || {};

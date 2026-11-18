@@ -2,10 +2,26 @@ import request from "supertest";
 import { jest } from "@jest/globals";
 
 // Mock the Kafka producer to bypass connections
+const mockConnect = jest.fn().mockResolvedValue(undefined);
+const mockDisconnect = jest.fn().mockResolvedValue(undefined);
+const mockSend = jest.fn().mockResolvedValue(undefined);
+const mockOn = jest.fn();
+
 jest.unstable_mockModule("kafkajs", () => {
   return {
     Kafka: class Kafka {
-      producer() { return { connect: jest.fn(), send: jest.fn() }; }
+      producer() {
+        return {
+          connect: mockConnect,
+          disconnect: mockDisconnect,
+          send: mockSend,
+          on: mockOn,
+          events: {
+            CONNECT: "producer.connect",
+            DISCONNECT: "producer.disconnect",
+          },
+        };
+      }
       consumer() { return { connect: jest.fn(), subscribe: jest.fn(), run: jest.fn() }; }
     }
   };
@@ -50,5 +66,11 @@ describe("Payment Service Routing & Endpoints", () => {
       .post("/")
       .send({ cart: [] });
     expect(res.statusCode).toEqual(404);
+  });
+
+  it("GET /health returns 503 when the relay loop is not running", async () => {
+    const res = await request(app).get("/health");
+    expect(res.statusCode).toEqual(503);
+    expect(res.text).toBe("Payment Service Relay Loop Not Running");
   });
 });

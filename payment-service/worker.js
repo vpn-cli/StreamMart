@@ -18,9 +18,26 @@ const kafka = new Kafka({
 
 const producer = kafka.producer();
 
+let shouldRun = false;
 let isRunning = false;
-let loopPromise = null;
 let isConnected = false;
+let loopPromise = null;
+let retryTimer = null;
+
+export const isRelayRunning = () => isRunning && isConnected;
+
+if (producer.on && producer.events) {
+  producer.on(producer.events.CONNECT, () => {
+    console.log("Outbox Worker: Kafka producer connected event received.");
+    isConnected = true;
+  });
+
+  producer.on(producer.events.DISCONNECT, () => {
+    console.warn("Outbox Worker: Kafka producer disconnected event received.");
+    isConnected = false;
+    isRunning = false;
+  });
+}
 
 /**
  * Process a single batch of unpublished outbox events using
@@ -102,49 +119,99 @@ const processOutboxBatch = async () => {
 
 /**
  * Main async outbox relay loop:
- * Awaits batch completion before scheduling next iteration to prevent overlapping runs.
+ * Handles initial Kafka connection with backoff, batch processing, and auto-reconnect.
  */
 const runLoop = async () => {
-  while (isRunning) {
+  let backoffDelay = 1000;
+  const maxDelay = 10000;
+
+  while (shouldRun) {
+    // 1. Ensure Kafka connection with retry and exponential backoff
+    if (!isConnected) {
+      isRunning = false;
+      try {
+        console.log(`Outbox Worker: Connecting to Kafka broker(s) (${process.env.KAFKA_BROKERS || "localhost:9092"})...`);
+        await producer.connect();
+        isConnected = true;
+        isRunning = true;
+        backoffDelay = 1000;
+        console.log("Outbox Worker: Connected to Kafka. Relay loop active.");
+      } catch (err) {
+        isConnected = false;
+        isRunning = false;
+        console.error(`Outbox Worker: Kafka connect failed: ${err.message}. Retrying in ${backoffDelay}ms...`);
+        if (!shouldRun) break;
+        await new Promise((resolve) => {
+          retryTimer = setTimeout(resolve, backoffDelay);
+        });
+        retryTimer = null;
+        backoffDelay = Math.min(backoffDelay * 2, maxDelay);
+        continue;
+      }
+    }
+
+    // 2. Process outbox batch
     try {
       const processedCount = await processOutboxBatch();
-      if (!isRunning) break;
+      if (!shouldRun) break;
 
-      // If events were processed, immediately check for more; otherwise wait 1s
+      // If events were processed, immediately check for more; otherwise wait 500ms
       if (processedCount === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => {
+          retryTimer = setTimeout(resolve, 500);
+        });
+        retryTimer = null;
       }
     } catch (err) {
-      console.error("Outbox Worker: Unexpected loop error:", err);
-      if (isRunning) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+      console.error("Outbox Worker: Unexpected loop error:", err.message || err);
+      if (
+        err.name === "KafkaJSConnectionError" ||
+        err.name === "KafkaJSNumberOfRetriesExceeded" ||
+        (err.message && (err.message.includes("connection") || err.message.includes("disconnected")))
+      ) {
+        isConnected = false;
+        isRunning = false;
+      }
+      if (shouldRun) {
+        await new Promise((resolve) => {
+          retryTimer = setTimeout(resolve, 1000);
+        });
+        retryTimer = null;
       }
     }
   }
+
+  isRunning = false;
 };
 
-export const startOutboxWorker = async () => {
+export const startOutboxWorker = () => {
   if (!process.env.DATABASE_URL) return;
-  if (isRunning) return;
+  if (shouldRun) return loopPromise;
 
-  try {
-    await producer.connect();
-    isConnected = true;
-    isRunning = true;
-    console.log("Outbox Worker: Connected to Kafka. Starting relay loop.");
-    loopPromise = runLoop();
-  } catch (err) {
-    console.error("Outbox Worker: Initial Kafka Connection Error", err.message);
-  }
+  shouldRun = true;
+  loopPromise = runLoop().catch((err) => {
+    console.error("Outbox Worker: Fatal error in relay loop:", err);
+    isRunning = false;
+    isConnected = false;
+  });
+  return loopPromise;
 };
 
 export const stopOutboxWorker = async () => {
   console.log("Outbox Worker: Stopping worker loop...");
+  shouldRun = false;
   isRunning = false;
+
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+
   if (loopPromise) {
     await loopPromise;
     loopPromise = null;
   }
+
   if (isConnected) {
     try {
       await producer.disconnect();
