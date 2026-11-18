@@ -100,9 +100,36 @@ export const processOrderOutboxBatch = async () => {
   return processedCount;
 };
 
+export async function pruneOrderOutboxEvents(retentionHours = 1) {
+  if (!db) return 0;
+  try {
+    const res = await db.execute(
+      sql`DELETE FROM outbox_events WHERE published = true AND topic = 'order-successful' AND created_at < NOW() - INTERVAL '1 hour' * ${retentionHours}`
+    );
+    const count = res?.rowCount || 0;
+    if (count > 0) {
+      console.log(`Order Outbox Pruner: Deleted ${count} published order-successful events older than ${retentionHours} hour(s).`);
+    }
+    return count;
+  } catch (err) {
+    console.error("Order Outbox Pruner error:", err.message);
+    return 0;
+  }
+}
+
+let lastPruned = Date.now();
+const PRUNE_INTERVAL_MS = 5 * 60 * 1000;
+const RETENTION_HOURS = parseInt(process.env.OUTBOX_RETENTION_HOURS || "1", 10);
+
 const runLoop = async () => {
   while (isRunning) {
     try {
+      const now = Date.now();
+      if (now - lastPruned > PRUNE_INTERVAL_MS) {
+        lastPruned = now;
+        await pruneOrderOutboxEvents(RETENTION_HOURS);
+      }
+
       const processedCount = await processOrderOutboxBatch();
       if (!isRunning) break;
 

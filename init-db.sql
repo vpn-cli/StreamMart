@@ -30,3 +30,16 @@ CREATE TABLE IF NOT EXISTS "processed_events" (
 	"processed_at" timestamp DEFAULT now() NOT NULL,
 	PRIMARY KEY ("event_id", "service_name")
 );
+
+-- High-efficiency partial indexes for transactional outbox relays per topic
+CREATE INDEX IF NOT EXISTS idx_outbox_events_payment_unpublished 
+  ON outbox_events (created_at ASC) 
+  WHERE published = false AND topic = 'payment-successful';
+
+CREATE INDEX IF NOT EXISTS idx_outbox_events_order_unpublished 
+  ON outbox_events (created_at ASC) 
+  WHERE published = false AND topic = 'order-successful';
+
+CREATE INDEX IF NOT EXISTS idx_outbox_events_email_unpublished 
+  ON outbox_events (created_at ASC) 
+  WHERE published = false AND topic = 'email-successful';
