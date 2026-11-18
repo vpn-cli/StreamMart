@@ -13,20 +13,24 @@ const BASE_URL = __ENV.GATEWAY_URL || 'http://localhost:8085';
 
 export function setup() {
   const authRes = http.post(
-    `${BASE_URL}/api/auth/token`,
-    JSON.stringify({ userId: 'k6_benchmark_user' }),
+    `${BASE_URL}/api/auth/tokens/batch`,
+    JSON.stringify({ count: 1000, prefix: 'k6_user' }),
     { headers: { 'Content-Type': 'application/json' } }
   );
 
   if (authRes.status !== 200) {
-    throw new Error(`Failed to acquire JWT from Gateway: ${authRes.status} ${authRes.body}`);
+    throw new Error(`Failed to acquire batch JWTs from Gateway: ${authRes.status} ${authRes.body}`);
   }
 
-  const token = JSON.parse(authRes.body).token;
-  return { token };
+  const tokens = JSON.parse(authRes.body).tokens;
+  return { tokens };
 }
 
 export default function (data) {
+  // Distribute across ~1,000 unique user tokens per VU and iteration
+  const userIdx = (__VU * 1000 + __ITER) % data.tokens.length;
+  const userObj = data.tokens[userIdx];
+
   const payload = JSON.stringify({
     cart: [
       { id: 'k6_item_1', name: 'Cloud Native T-Shirt', price: 29.99 },
@@ -37,7 +41,7 @@ export default function (data) {
   const params = {
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${data.token}`,
+      'Authorization': `Bearer ${userObj.token}`,
     },
   };
 

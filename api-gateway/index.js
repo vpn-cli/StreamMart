@@ -40,6 +40,26 @@ app.post("/api/auth/token", express.json(), (req, res) => {
   res.status(200).json({ token, userId });
 });
 
+// Demo batch token endpoint for multi-user realistic load testing
+app.post("/api/auth/tokens/batch", express.json(), (req, res) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  const allowDemoAuth = process.env.DEMO_AUTH === "true" && !isProduction;
+
+  if (!allowDemoAuth) {
+    return res.status(404).json({ error: "Not Found" });
+  }
+
+  const count = Math.min(req.body?.count || 1000, 5000);
+  const prefix = req.body?.prefix || "user";
+  const tokens = [];
+  for (let i = 0; i < count; i++) {
+    const userId = `${prefix}_${i}`;
+    const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
+    tokens.push({ userId, token });
+  }
+  res.status(200).json({ tokens });
+});
+
 // Proxy payment requests, enforcing JWT authorization
 // Target: internal payment-service within Docker Compose network
 app.use(
