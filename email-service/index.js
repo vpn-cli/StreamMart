@@ -28,7 +28,11 @@ const healthServer = http.createServer((req, res) => {
 
 const HEALTH_PORT = process.env.PORT || 8002;
 healthServer.listen(HEALTH_PORT, () => {
+  const effectiveRetentionHours = parseInt(process.env.OUTBOX_RETENTION_HOURS || "1", 10);
   console.log(`🚀 Email service health server listening on port ${HEALTH_PORT}`);
+  console.log(
+    `[EFFECTIVE CONFIG] email-service: PORT=${HEALTH_PORT}, OUTBOX_RETENTION_HOURS=${effectiveRetentionHours}, KAFKA_BROKERS=${process.env.KAFKA_BROKERS || "localhost:9092"}`
+  );
 });
 
 const kafka = new Kafka({

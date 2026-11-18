@@ -78,8 +78,14 @@ app.use(
 
 let server;
 const PORT = process.env.PORT || 8080;
+const targetPaymentUrl = process.env.PAYMENT_SERVICE_URL || "http://payment-service:8000";
 if (process.env.NODE_ENV !== "test") {
-  server = app.listen(PORT, () => console.log(`🚀 API Gateway securely routing traffic on port ${PORT}`));
+  server = app.listen(PORT, () => {
+    console.log(`🚀 API Gateway securely routing traffic on port ${PORT}`);
+    console.log(
+      `[EFFECTIVE CONFIG] api-gateway: PORT=${PORT}, PAYMENT_SERVICE_URL=${targetPaymentUrl}, PROXY_KEEP_ALIVE=${enableKeepAlive}, NODE_ENV=${process.env.NODE_ENV || "development"}`
+    );
+  });
 }
 
 // Graceful shutdown handling

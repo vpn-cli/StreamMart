@@ -106,13 +106,13 @@ export async function pruneEmailOutboxEvents(retentionHours = 1) {
     const res = await db.execute(
       sql`DELETE FROM outbox_events WHERE published = true AND topic = 'email-successful' AND created_at < NOW() - INTERVAL '1 hour' * ${retentionHours}`
     );
-    const count = res?.rowCount || 0;
+    const count = Number(res?.count ?? res?.rowCount ?? 0);
     if (count > 0) {
       console.log(`Email Outbox Pruner: Deleted ${count} published email-successful events older than ${retentionHours} hour(s).`);
     }
     return count;
   } catch (err) {
-    console.error("Email Outbox Pruner error:", err.message);
+    console.error("🚨 [CRITICAL][Email Outbox Pruner] PRUNE FAILED! Published email-successful rows are NOT being cleaned up:", err.message, err.stack || "");
     return 0;
   }
 }

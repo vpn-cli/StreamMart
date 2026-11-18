@@ -3,7 +3,7 @@ import cors from "cors";
 import crypto from "node:crypto";
 import { db } from "./db/index.js";
 import { payments, outboxEvents } from "./db/schema.js";
-import { startOutboxWorker, stopOutboxWorker, isRelayRunning } from "./worker.js";
+import { startOutboxWorker, stopOutboxWorker, isRelayRunning, getRelayStatus } from "./worker.js";
 
 const app = express();
 
@@ -15,12 +15,25 @@ app.get("/health", (req, res) => {
   return res.status(200).send("Payment Service OK");
 });
 
-// Relay Status Check: returns 200 if relay loop is active, 503 if disconnected from Kafka
+// Relay Status Check: returns 200 if relay loop is active, 503 if disconnected from Kafka.
+// Always includes outbox pruner health and last error for visibility.
 app.get("/relay-status", (req, res) => {
-  if (!isRelayRunning()) {
-    return res.status(503).send("Payment Service Relay Loop Not Running");
+  const status = getRelayStatus();
+  if (!status.relayRunning) {
+    return res.status(503).json({
+      status: "unhealthy",
+      message: "Payment Service Relay Loop Not Running",
+      ...status,
+    });
   }
-  return res.status(200).send("Payment Service Relay Running");
+  const hasPrunerError = Boolean(status.pruner?.lastError);
+  return res.status(200).json({
+    status: hasPrunerError ? "degraded" : "ok",
+    message: hasPrunerError
+      ? `Payment Service Relay Running (Pruner Error: ${status.pruner.lastError})`
+      : "Payment Service Relay Running",
+    ...status,
+  });
 });
 
 const handlePayment = async (req, res) => {
@@ -80,8 +93,15 @@ let server;
 if (process.env.NODE_ENV !== "test") {
   const PORT = process.env.PORT || 8000;
   server = app.listen(PORT, () => {
-    startOutboxWorker();
+    const effectivePoolMax = parseInt(process.env.DB_POOL_MAX || "10", 10);
+    const effectiveBatchSend = process.env.RELAY_BATCH_SEND === "true";
+    const effectiveBusyPauseMs = parseInt(process.env.RELAY_BUSY_PAUSE_MS || "25", 10);
+    const effectiveRetentionHours = parseInt(process.env.OUTBOX_RETENTION_HOURS || "1", 10);
     console.log(`🚀 Payment service is running on port ${PORT}`);
+    console.log(
+      `[EFFECTIVE CONFIG] payment-service: PORT=${PORT}, DB_POOL_MAX=${effectivePoolMax}, RELAY_BATCH_SEND=${effectiveBatchSend}, RELAY_BUSY_PAUSE_MS=${effectiveBusyPauseMs}, OUTBOX_RETENTION_HOURS=${effectiveRetentionHours}, KAFKA_BROKERS=${process.env.KAFKA_BROKERS || "localhost:9092"}`
+    );
+    startOutboxWorker();
   });
 }
 

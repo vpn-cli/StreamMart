@@ -22,6 +22,16 @@ const OUTBOX_RETENTION_HOURS = parseInt(process.env.OUTBOX_RETENTION_HOURS || "1
 let lastPruneTime = 0;
 const PRUNE_INTERVAL_MS = 60 * 1000;
 
+let prunerStatus = {
+  lastRunAt: null,
+  lastDeletedCount: 0,
+  lastError: null,
+  lastErrorAt: null,
+  consecutiveErrors: 0,
+};
+
+export const getPrunerStatus = () => ({ ...prunerStatus });
+
 export const prunePublishedEvents = async (force = false) => {
   if (!db) return 0;
   const now = Date.now();
@@ -29,16 +39,35 @@ export const prunePublishedEvents = async (force = false) => {
   lastPruneTime = now;
 
   try {
+    const retentionHours = parseInt(process.env.OUTBOX_RETENTION_HOURS || "1", 10);
     const result = await db.execute(
-      sql`DELETE FROM outbox_events WHERE published = true AND topic = 'payment-successful' AND created_at < NOW() - INTERVAL '1 hour' * ${OUTBOX_RETENTION_HOURS}`
+      sql`DELETE FROM outbox_events WHERE published = true AND topic = 'payment-successful' AND created_at < NOW() - INTERVAL '1 hour' * ${retentionHours}`
     );
-    const deletedCount = result?.rowCount || 0;
+    const deletedCount = Number(result?.count ?? result?.rowCount ?? 0);
+    prunerStatus = {
+      lastRunAt: new Date(now).toISOString(),
+      lastDeletedCount: deletedCount,
+      lastError: null,
+      lastErrorAt: prunerStatus.lastErrorAt,
+      consecutiveErrors: 0,
+    };
     if (deletedCount > 0) {
-      console.log(`Outbox Pruner: Deleted ${deletedCount} published outbox events older than ${OUTBOX_RETENTION_HOURS} hour(s).`);
+      console.log(`Outbox Pruner: Deleted ${deletedCount} published outbox events older than ${retentionHours} hour(s).`);
     }
     return deletedCount;
   } catch (err) {
-    console.error("Outbox Pruner: Prune operation failed:", err.message);
+    const errMsg = err?.message || String(err);
+    prunerStatus = {
+      lastRunAt: new Date(now).toISOString(),
+      lastDeletedCount: 0,
+      lastError: errMsg,
+      lastErrorAt: new Date(now).toISOString(),
+      consecutiveErrors: prunerStatus.consecutiveErrors + 1,
+    };
+    console.error(
+      `🚨 [CRITICAL][Outbox Pruner] PRUNE FAILED (consecutive=${prunerStatus.consecutiveErrors}): Published payment-successful outbox rows are NOT being cleaned up! Error: ${errMsg}`,
+      err?.stack || ""
+    );
     return 0;
   }
 };
@@ -50,6 +79,11 @@ let loopPromise = null;
 let retryTimer = null;
 
 export const isRelayRunning = () => isRunning && isConnected;
+export const getRelayStatus = () => ({
+  relayRunning: isRelayRunning(),
+  kafkaConnected: isConnected,
+  pruner: getPrunerStatus(),
+});
 
 if (producer.on && producer.events) {
   producer.on(producer.events.CONNECT, () => {

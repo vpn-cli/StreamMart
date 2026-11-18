@@ -51,7 +51,7 @@ describe("Payment Service Routing & Endpoints", () => {
     const res = await request(app)
       .post("/payment")
       .send({ cart: [{ price: 50 }, { price: 20 }] });
-      
+
     expect(res.statusCode).toEqual(200);
     expect(res.text).toBe("Payment processed and event safely queued in outbox.");
   });
@@ -76,14 +76,38 @@ describe("Payment Service Routing & Endpoints", () => {
     expect(res.text).toBe("Payment Service OK");
   });
 
-  it("GET /relay-status returns 503 when the relay loop is not running", async () => {
+  it("GET /relay-status returns 503 with pruner status when the relay loop is not running", async () => {
     const res = await request(app).get("/relay-status");
     expect(res.statusCode).toEqual(503);
-    expect(res.text).toBe("Payment Service Relay Loop Not Running");
+    expect(res.body.status).toBe("unhealthy");
+    expect(res.body.relayRunning).toBe(false);
+    expect(res.body.pruner).toBeDefined();
   });
 
   it("prunePublishedEvents deletes published events older than retention cutoff", async () => {
     const deleted = await prunePublishedEvents(true);
     expect(deleted).toBe(5);
+    const res = await request(app).get("/relay-status");
+    expect(res.body.pruner.lastDeletedCount).toBe(5);
+    expect(res.body.pruner.lastError).toBeNull();
+  });
+
+  it("prunePublishedEvents logs loudly and exposes error in /relay-status on DB failure", async () => {
+    const { db } = await import("../db/index.js");
+    db.execute.mockRejectedValueOnce(new Error("simulated prune failure"));
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => { });
+
+    const deleted = await prunePublishedEvents(true);
+    expect(deleted).toBe(0);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[CRITICAL][Outbox Pruner] PRUNE FAILED"),
+      expect.any(String)
+    );
+
+    const res = await request(app).get("/relay-status");
+    expect(res.body.pruner.lastError).toContain("simulated prune failure");
+    expect(res.body.pruner.consecutiveErrors).toBeGreaterThanOrEqual(1);
+
+    errorSpy.mockRestore();
   });
 });

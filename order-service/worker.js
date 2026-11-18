@@ -106,13 +106,13 @@ export async function pruneOrderOutboxEvents(retentionHours = 1) {
     const res = await db.execute(
       sql`DELETE FROM outbox_events WHERE published = true AND topic = 'order-successful' AND created_at < NOW() - INTERVAL '1 hour' * ${retentionHours}`
     );
-    const count = res?.rowCount || 0;
+    const count = Number(res?.count ?? res?.rowCount ?? 0);
     if (count > 0) {
       console.log(`Order Outbox Pruner: Deleted ${count} published order-successful events older than ${retentionHours} hour(s).`);
     }
     return count;
   } catch (err) {
-    console.error("Order Outbox Pruner error:", err.message);
+    console.error("🚨 [CRITICAL][Order Outbox Pruner] PRUNE FAILED! Published order-successful rows are NOT being cleaned up:", err.message, err.stack || "");
     return 0;
   }
 }

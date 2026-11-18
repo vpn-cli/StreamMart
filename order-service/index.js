@@ -73,7 +73,14 @@ const healthServer = http.createServer((req, res) => {
 
 const HEALTH_PORT = process.env.PORT || 8001;
 healthServer.listen(HEALTH_PORT, () => {
+  const effectivePoolMax = parseInt(process.env.DB_POOL_MAX || "10", 10);
+  const effectiveConsumerMode = process.env.CONSUMER_MODE || "eachMessage";
+  const effectiveConcurrency = parseInt(process.env.PARTITIONS_CONSUMED_CONCURRENTLY || "1", 10);
+  const effectiveRetentionHours = parseInt(process.env.OUTBOX_RETENTION_HOURS || "1", 10);
   console.log(`🚀 Order service health server listening on port ${HEALTH_PORT}`);
+  console.log(
+    `[EFFECTIVE CONFIG] order-service: PORT=${HEALTH_PORT}, DB_POOL_MAX=${effectivePoolMax}, CONSUMER_MODE=${effectiveConsumerMode}, PARTITIONS_CONSUMED_CONCURRENTLY=${effectiveConcurrency}, OUTBOX_RETENTION_HOURS=${effectiveRetentionHours}, KAFKA_BROKERS=${process.env.KAFKA_BROKERS || "localhost:9092"}`
+  );
 });
 
 const kafka = new Kafka({

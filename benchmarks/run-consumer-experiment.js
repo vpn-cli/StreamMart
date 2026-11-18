@@ -50,7 +50,7 @@ async function resetKafkaTopics(numPartitions = 1) {
   console.log(`>>> [Clean Reset] Stopping app containers before Kafka topic reset...`);
   try {
     execSync('docker compose stop api-gateway payment-service order-service email-service analytic-service', { stdio: 'inherit' });
-  } catch (_) {}
+  } catch (_) { }
 
   console.log(`>>> [Clean Reset] Deleting and recreating Kafka application topics with ${numPartitions} partition(s)...`);
   const topics = ['payment-successful', 'order-successful', 'email-successful', 'payment-successful.DLQ'];
@@ -60,7 +60,7 @@ async function resetKafkaTopics(numPartitions = 1) {
         `docker exec streammart-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic ${topic}`,
         { stdio: 'pipe' }
       );
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // Wait for Kafka async topic deletion to complete
@@ -152,14 +152,29 @@ async function deployExperiment(experimentName) {
       if (allHealthy) {
         console.log('>>> All services healthy and ready!');
         await sleep(3000);
-        // Verify order-service consumer config from logs
+        // Extract and print [EFFECTIVE CONFIG] startup log lines from inside each container
+        const effectiveConfigs = {};
+        console.log('>>> [Effective Config Verification from Container Startup Logs]');
+        for (const svc of ['streammart-gateway', 'streammart-payment', 'streammart-order', 'streammart-email']) {
+          const logs = execSync(`docker logs ${svc} 2>&1`, { encoding: 'utf8' });
+          const configLine = logs
+            .split(/\r?\n/)
+            .find((line) => line.includes('[EFFECTIVE CONFIG]')) || '(not found)';
+          effectiveConfigs[svc] = configLine.trim();
+          console.log(`    ${svc}: ${effectiveConfigs[svc]}`);
+        }
         const orderLogs = execSync('docker logs streammart-order 2>&1', { encoding: 'utf8' });
         const expectedMarker = `mode=${consumerMode}, partitionsConsumedConcurrently=${concurrency}`;
         if (!orderLogs.includes(expectedMarker)) {
           throw new Error(`Order service did not start with expected config "${expectedMarker}". Logs:\n${orderLogs.slice(-800)}`);
         }
         console.log(`>>> [Order Verification] Confirmed: ${expectedMarker}`);
-        return;
+        return {
+          numPartitions,
+          consumerMode,
+          partitionsConsumedConcurrently: Number(concurrency),
+          containerStartupLogs: effectiveConfigs,
+        };
       }
     } catch (e) {
       if (e.message && e.message.includes('Order service did not start')) throw e;
@@ -230,9 +245,11 @@ function calcStats(numbers) {
 }
 
 async function runExperiment(experimentName) {
-  await deployExperiment(experimentName);
+  const effectiveConfig = await deployExperiment(experimentName);
 
-  const experimentResults = {};
+  const experimentResults = {
+    _effectiveConfig: effectiveConfig,
+  };
 
   for (const vus of [20, 50, 100]) {
     console.log(`\n------------------------------------------------------------------------`);
@@ -341,8 +358,8 @@ async function main() {
   const exps = targetExperiment === 'all'
     ? ['baseline_consumer', 'fix_a', 'fix_b']
     : targetExperiment === 'fixes'
-    ? ['fix_a', 'fix_b']
-    : [targetExperiment];
+      ? ['fix_a', 'fix_b']
+      : [targetExperiment];
 
   for (const exp of exps) {
     await runExperiment(exp);
