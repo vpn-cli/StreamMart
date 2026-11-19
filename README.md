@@ -1,5 +1,9 @@
 # StreamMart: Event-Driven E-Commerce Microservices
 
+[![Microservices CI](https://github.com/vpn-cli/streammart/actions/workflows/ci.yml/badge.svg)](https://github.com/vpn-cli/streammart/actions/workflows/ci.yml)
+
+> Resilient, high-throughput event-driven e-commerce microservices platform demonstrating zero-data-loss checkout persistence via the Transactional Outbox pattern and idempotent Kafka stream processing.
+
 <div align="center">
   <img src="https://img.shields.io/badge/Architecture-Event--Driven-blue.svg" alt="Architecture" />
   <img src="https://img.shields.io/badge/Message_Broker-Apache_Kafka_3.7_KRaft-black.svg?logo=apachekafka" alt="Kafka" />
@@ -142,8 +146,10 @@ All numbers below come from clean, reset-database, full-drain runs with raw outp
 
 ### 1. Environment Setup
 
-Copy `.env.example` to `.env` and set your `JWT_SECRET` (minimum 32 characters):
+Clone the repository and configure your environment:
 ```bash
+git clone https://github.com/vpn-cli/streammart.git
+cd streammart
 cp .env.example .env
 ```
 To generate a secure 32-character hex secret:
@@ -196,7 +202,7 @@ node scripts/test-outbox-outage.js
 
 ## Continuous Integration (CI/CD)
 
-The repository runs an automated two-stage pipeline on GitHub Actions (`.github/workflows/ci.yml`) on every push and pull request to `main`, `master`, and `fix/*`:
+The repository runs an automated two-stage pipeline on [GitHub Actions](https://github.com/vpn-cli/streammart/actions/workflows/ci.yml) (`.github/workflows/ci.yml`) on every push and pull request to `main`, `master`, and `fix/*`:
 
 1. **`unit-and-integration-tests`**:
    - Generates a masked ephemeral `JWT_SECRET` (`openssl rand -hex 32`).
