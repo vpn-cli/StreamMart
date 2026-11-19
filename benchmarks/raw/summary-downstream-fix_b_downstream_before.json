@@ -1,0 +1,282 @@
+{
+  "label": "fix_b_downstream_before",
+  "emailConsumerMode": "eachMessage",
+  "analyticConsumerMode": "eachMessage",
+  "effectiveConfigs": {
+    "streammart-gateway": "[EFFECTIVE CONFIG] api-gateway: PORT=8080, PAYMENT_SERVICE_URL=http://payment-service:8000, PROXY_KEEP_ALIVE=true, NODE_ENV=development",
+    "streammart-payment": "[EFFECTIVE CONFIG] payment-service: PORT=8000, DB_POOL_MAX=30, RELAY_BATCH_SEND=true, RELAY_BUSY_PAUSE_MS=25, OUTBOX_RETENTION_HOURS=1, KAFKA_BROKERS=kafka:9092",
+    "streammart-order": "[EFFECTIVE CONFIG] order-service: PORT=8001, DB_POOL_MAX=30, CONSUMER_MODE=eachBatch, PARTITIONS_CONSUMED_CONCURRENTLY=1, OUTBOX_RETENTION_HOURS=1, KAFKA_BROKERS=kafka:9092",
+    "streammart-email": "[EFFECTIVE CONFIG] email-service: PORT=8002, OUTBOX_RETENTION_HOURS=1, KAFKA_BROKERS=kafka:9092",
+    "streammart-analytic": "(not found)"
+  },
+  "tiers": {
+    "50": {
+      "runs": [
+        {
+          "run": 1,
+          "acceptedRate": 278.47,
+          "acceptedPayments": 8651,
+          "p50": 115.67,
+          "p95": 204.53,
+          "errorRate": 0,
+          "lagAt30s": {
+            "orderLag": 0,
+            "emailLag": 5359,
+            "analyticLag": 20905,
+            "orderOutboxPending": 0,
+            "emailOutboxPending": 72
+          },
+          "orderCatchupSec": 0,
+          "emailCatchupSec": 48.72,
+          "analyticCatchupSec": 97.07,
+          "timedOut": {
+            "order": false,
+            "email": false,
+            "analytic": false
+          },
+          "finalCounts": {
+            "ordersDone": 8651,
+            "emailsDone": 8651,
+            "analyticsDone": 25953,
+            "targetOrders": 8651,
+            "targetEmails": 8651,
+            "targetAnalytics": 25953
+          }
+        },
+        {
+          "run": 2,
+          "acceptedRate": 320.24,
+          "acceptedPayments": 10062,
+          "p50": 92.67,
+          "p95": 166.43,
+          "errorRate": 0,
+          "lagAt30s": {
+            "orderLag": 0,
+            "emailLag": 6515,
+            "analyticLag": 24969,
+            "orderOutboxPending": 0,
+            "emailOutboxPending": 23
+          },
+          "orderCatchupSec": 0,
+          "emailCatchupSec": 49.89,
+          "analyticCatchupSec": 135.1,
+          "timedOut": {
+            "order": false,
+            "email": false,
+            "analytic": false
+          },
+          "finalCounts": {
+            "ordersDone": 10062,
+            "emailsDone": 10062,
+            "analyticsDone": 30186,
+            "targetOrders": 10062,
+            "targetEmails": 10062,
+            "targetAnalytics": 30186
+          }
+        },
+        {
+          "run": 3,
+          "acceptedRate": 314.72,
+          "acceptedPayments": 9858,
+          "p50": 95.89,
+          "p95": 162.69,
+          "errorRate": 0,
+          "lagAt30s": {
+            "orderLag": 0,
+            "emailLag": 6853,
+            "analyticLag": 25109,
+            "orderOutboxPending": 0,
+            "emailOutboxPending": 11
+          },
+          "orderCatchupSec": 0,
+          "emailCatchupSec": 47.42,
+          "analyticCatchupSec": 104.85,
+          "timedOut": {
+            "order": false,
+            "email": false,
+            "analytic": false
+          },
+          "finalCounts": {
+            "ordersDone": 9858,
+            "emailsDone": 9858,
+            "analyticsDone": 29574,
+            "targetOrders": 9858,
+            "targetEmails": 9858,
+            "targetAnalytics": 29574
+          }
+        }
+      ],
+      "summary": {
+        "acceptedRate": {
+          "mean": 304.48,
+          "min": 278.47,
+          "max": 320.24
+        },
+        "orderLagAt30s": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "orderCatchupSec": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "emailLagAt30s": {
+          "mean": 6242.33,
+          "min": 5359,
+          "max": 6853
+        },
+        "emailCatchupSec": {
+          "mean": 48.68,
+          "min": 47.42,
+          "max": 49.89
+        },
+        "analyticLagAt30s": {
+          "mean": 23661,
+          "min": 20905,
+          "max": 25109
+        },
+        "analyticCatchupSec": {
+          "mean": 112.34,
+          "min": 97.07,
+          "max": 135.1
+        }
+      }
+    },
+    "100": {
+      "runs": [
+        {
+          "run": 1,
+          "acceptedRate": 240.28,
+          "acceptedPayments": 7948,
+          "p50": 268.71,
+          "p95": 617.4,
+          "errorRate": 0,
+          "lagAt30s": {
+            "orderLag": 0,
+            "emailLag": 4592,
+            "analyticLag": 18619,
+            "orderOutboxPending": 0,
+            "emailOutboxPending": 1
+          },
+          "orderCatchupSec": 0,
+          "emailCatchupSec": 42.09,
+          "analyticCatchupSec": 88.83,
+          "timedOut": {
+            "order": false,
+            "email": false,
+            "analytic": false
+          },
+          "finalCounts": {
+            "ordersDone": 7948,
+            "emailsDone": 7948,
+            "analyticsDone": 23844,
+            "targetOrders": 7948,
+            "targetEmails": 7948,
+            "targetAnalytics": 23844
+          }
+        },
+        {
+          "run": 2,
+          "acceptedRate": 282.65,
+          "acceptedPayments": 8833,
+          "p50": 251.89,
+          "p95": 467.87,
+          "errorRate": 0,
+          "lagAt30s": {
+            "orderLag": 0,
+            "emailLag": 5188,
+            "analyticLag": 20862,
+            "orderOutboxPending": 15,
+            "emailOutboxPending": 12
+          },
+          "orderCatchupSec": 0,
+          "emailCatchupSec": 53,
+          "analyticCatchupSec": 108.6,
+          "timedOut": {
+            "order": false,
+            "email": false,
+            "analytic": false
+          },
+          "finalCounts": {
+            "ordersDone": 8833,
+            "emailsDone": 8833,
+            "analyticsDone": 26499,
+            "targetOrders": 8833,
+            "targetEmails": 8833,
+            "targetAnalytics": 26499
+          }
+        },
+        {
+          "run": 3,
+          "acceptedRate": 301.65,
+          "acceptedPayments": 9398,
+          "p50": 235.76,
+          "p95": 452.99,
+          "errorRate": 0,
+          "lagAt30s": {
+            "orderLag": 0,
+            "emailLag": 5371,
+            "analyticLag": 21958,
+            "orderOutboxPending": 0,
+            "emailOutboxPending": 51
+          },
+          "orderCatchupSec": 0,
+          "emailCatchupSec": 37.17,
+          "analyticCatchupSec": 94.01,
+          "timedOut": {
+            "order": false,
+            "email": false,
+            "analytic": false
+          },
+          "finalCounts": {
+            "ordersDone": 9398,
+            "emailsDone": 9398,
+            "analyticsDone": 28194,
+            "targetOrders": 9398,
+            "targetEmails": 9398,
+            "targetAnalytics": 28194
+          }
+        }
+      ],
+      "summary": {
+        "acceptedRate": {
+          "mean": 274.86,
+          "min": 240.28,
+          "max": 301.65
+        },
+        "orderLagAt30s": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "orderCatchupSec": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "emailLagAt30s": {
+          "mean": 5050.33,
+          "min": 4592,
+          "max": 5371
+        },
+        "emailCatchupSec": {
+          "mean": 44.09,
+          "min": 37.17,
+          "max": 53
+        },
+        "analyticLagAt30s": {
+          "mean": 20479.67,
+          "min": 18619,
+          "max": 21958
+        },
+        "analyticCatchupSec": {
+          "mean": 97.15,
+          "min": 88.83,
+          "max": 108.6
+        }
+      }
+    }
+  }
+}

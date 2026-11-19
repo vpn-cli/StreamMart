@@ -1,0 +1,224 @@
+{
+  "20": {
+    "runs": [
+      {
+        "run": 1,
+        "acceptedRate": 135.1658226393644,
+        "completedRate": 66.28846444881573,
+        "completedCount": 2074,
+        "p50": 61.6157,
+        "p95": 176.21513999999988,
+        "errorRate": 0,
+        "backlog": 0,
+        "drainSec": 0
+      },
+      {
+        "run": 2,
+        "acceptedRate": 152.86998154621253,
+        "completedRate": 64.01891073765094,
+        "completedCount": 1998,
+        "p50": 58.0091,
+        "p95": 180.8073,
+        "errorRate": 0,
+        "backlog": 0,
+        "drainSec": 0
+      },
+      {
+        "run": 3,
+        "acceptedRate": 170.4049116645989,
+        "completedRate": 82.8203838399504,
+        "completedCount": 2625,
+        "p50": 53.9315,
+        "p95": 101.777,
+        "errorRate": 0,
+        "backlog": 0,
+        "drainSec": 0
+      }
+    ],
+    "summary": {
+      "acceptedRate": {
+        "mean": 152.81357195005862,
+        "min": 135.1658226393644,
+        "max": 170.4049116645989
+      },
+      "completedRate": {
+        "mean": 71.04258634213903,
+        "min": 64.01891073765094,
+        "max": 82.8203838399504
+      },
+      "p50": {
+        "mean": 57.8521,
+        "min": 53.9315,
+        "max": 61.6157
+      },
+      "p95": {
+        "mean": 152.9331466666666,
+        "min": 101.777,
+        "max": 180.8073
+      },
+      "errorRate": {
+        "mean": 0,
+        "min": 0,
+        "max": 0
+      },
+      "backlog": {
+        "mean": 0,
+        "min": 0,
+        "max": 0
+      },
+      "drainSec": {
+        "mean": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  "50": {
+    "runs": [
+      {
+        "run": 1,
+        "acceptedRate": 171.70311900955835,
+        "completedRate": 68.8381918538974,
+        "completedCount": 2358,
+        "p50": 205.68505,
+        "p95": 305.27509000000003,
+        "errorRate": 0,
+        "backlog": 291,
+        "drainSec": 2.56
+      },
+      {
+        "run": 2,
+        "acceptedRate": 115.1462377708344,
+        "completedRate": 43.19404103151214,
+        "completedCount": 1528,
+        "p50": 246.7215,
+        "p95": 693.7413449999997,
+        "errorRate": 0,
+        "backlog": 250,
+        "drainSec": 1.21
+      },
+      {
+        "run": 3,
+        "acceptedRate": 176.64012114556974,
+        "completedRate": 74.23652024036141,
+        "completedCount": 2564,
+        "p50": 204.91175,
+        "p95": 277.74109,
+        "errorRate": 0,
+        "backlog": 113,
+        "drainSec": 2.19
+      }
+    ],
+    "summary": {
+      "acceptedRate": {
+        "mean": 154.49649264198752,
+        "min": 115.1462377708344,
+        "max": 176.64012114556974
+      },
+      "completedRate": {
+        "mean": 62.08958437525698,
+        "min": 43.19404103151214,
+        "max": 74.23652024036141
+      },
+      "p50": {
+        "mean": 219.1061,
+        "min": 204.91175,
+        "max": 246.7215
+      },
+      "p95": {
+        "mean": 425.58584166666657,
+        "min": 277.74109,
+        "max": 693.7413449999997
+      },
+      "errorRate": {
+        "mean": 0,
+        "min": 0,
+        "max": 0
+      },
+      "backlog": {
+        "mean": 218,
+        "min": 113,
+        "max": 291
+      },
+      "drainSec": {
+        "mean": 1.9866666666666666,
+        "min": 1.21,
+        "max": 2.56
+      }
+    }
+  },
+  "100": {
+    "runs": [
+      {
+        "run": 1,
+        "acceptedRate": 129.70470139725072,
+        "completedRate": 54.35779640140812,
+        "completedCount": 1799,
+        "p50": 476.6457,
+        "p95": 2566.23022,
+        "errorRate": 0,
+        "backlog": 360,
+        "drainSec": 1.2
+      },
+      {
+        "run": 2,
+        "acceptedRate": 103.39132888095733,
+        "completedRate": 47.14600854500231,
+        "completedCount": 1837,
+        "p50": 508.28650000000005,
+        "p95": 917.9716,
+        "errorRate": 0,
+        "backlog": 519,
+        "drainSec": 2.52
+      },
+      {
+        "run": 3,
+        "acceptedRate": 182.07180115273331,
+        "completedRate": 82.65759653980544,
+        "completedCount": 2644,
+        "p50": 452.8023,
+        "p95": 585.3403549999999,
+        "errorRate": 0,
+        "backlog": 0,
+        "drainSec": 0
+      }
+    ],
+    "summary": {
+      "acceptedRate": {
+        "mean": 138.38927714364712,
+        "min": 103.39132888095733,
+        "max": 182.07180115273331
+      },
+      "completedRate": {
+        "mean": 61.38713382873863,
+        "min": 47.14600854500231,
+        "max": 82.65759653980544
+      },
+      "p50": {
+        "mean": 479.24483333333336,
+        "min": 452.8023,
+        "max": 508.28650000000005
+      },
+      "p95": {
+        "mean": 1356.5140583333332,
+        "min": 585.3403549999999,
+        "max": 2566.23022
+      },
+      "errorRate": {
+        "mean": 0,
+        "min": 0,
+        "max": 0
+      },
+      "backlog": {
+        "mean": 293,
+        "min": 0,
+        "max": 519
+      },
+      "drainSec": {
+        "mean": 1.24,
+        "min": 0,
+        "max": 2.52
+      }
+    }
+  }
+}

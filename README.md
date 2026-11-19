@@ -1,74 +1,153 @@
-# 🛒 StreamMart: Enterprise Microservices Architecture
+# StreamMart: Event-Driven E-Commerce Microservices
 
 <div align="center">
   <img src="https://img.shields.io/badge/Architecture-Event--Driven-blue.svg" alt="Architecture" />
-  <img src="https://img.shields.io/badge/Message_Broker-Apache_Kafka-black.svg?logo=apachekafka" alt="Kafka" />
-  <img src="https://img.shields.io/badge/Database-Neon_Serverless_Postgres-00E599.svg?logo=postgresql" alt="Neon" />
+  <img src="https://img.shields.io/badge/Message_Broker-Apache_Kafka_3.7_KRaft-black.svg?logo=apachekafka" alt="Kafka" />
+  <img src="https://img.shields.io/badge/Database-PostgreSQL_16-336791.svg?logo=postgresql" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/ORM-Drizzle-C5F74F.svg?logo=drizzle" alt="Drizzle" />
-  <img src="https://img.shields.io/badge/Orchestration-Kubernetes-326CE5.svg?logo=kubernetes" alt="Kubernetes" />
+  <img src="https://img.shields.io/badge/Reliability-Transactional_Outbox-orange.svg" alt="Outbox" />
+  <img src="https://img.shields.io/badge/Orchestration-Docker_Compose-326CE5.svg?logo=docker" alt="Docker" />
 </div>
 
-## 📖 Overview
-StreamMart is an enterprise-grade, event-driven e-commerce microservices architecture. It demonstrates modern backend patterns required for high-availability, fault-tolerant distributed systems. 
+## Overview
 
-## 🏗️ Architecture & Workflow
+StreamMart is an event-driven e-commerce microservices system built with Node.js, Apache Kafka (KRaft), PostgreSQL 16, Drizzle ORM, and Docker Compose. It demonstrates reliable asynchronous event processing using the **Transactional Outbox** pattern (`SELECT ... FOR UPDATE SKIP LOCKED`), **idempotent batch consumers** (`eachBatch` with `processed_events`), **per-message poison-pill fallback to a Dead Letter Queue (DLQ)**, deterministic partition keys, and distributed event lineage (`eventId`, `correlationId`, `causationId`).
 
-The system is fully decoupled using **Apache Kafka** as the central message broker, allowing services to scale independently without bottlenecking synchronous HTTP chains.
+---
+
+## Architecture
 
 ```mermaid
-graph TD
-    Client[Next.js Client UI] -->|JWT Auth & REST API| Gateway[API Gateway Port: 8080]
-    
-    Gateway -->|HTTP POST| Payment[Payment Service]
-    Gateway -->|HTTP GET/POST| Order[Order Service]
-    
-    subgraph Transactional Outbox Pattern
-    Payment -->|Tx Insert| DB[(Neon PostgreSQL)]
-    PaymentWorker[Outbox Worker] -.->|1. Poll Events| DB
-    PaymentWorker -->|2. Reliable Publish| Kafka[Apache Kafka]
+flowchart TD
+    Client["Client / Load Generator"] -->|"HTTP + JWT (Port 8085)"| Gateway["API Gateway"]
+    Gateway -->|"HTTP Keep-Alive POST /payment"| Payment["Payment Service"]
+
+    subgraph Storage["PostgreSQL 16"]
+        PaymentsTbl[("payments")]
+        OrdersTbl[("orders")]
+        OutboxTbl[("outbox_events\n(topic-scoped partial indexes)")]
+        ProcessedTbl[("processed_events\n(event_id, service_name PK)")]
     end
-    
-    Kafka -->|Topic: payment-successful| Order
-    Kafka -->|Topic: payment-successful| Analytics[Analytic Service]
-    Kafka -->|Topic: order-successful| Email[Email Service]
-    
-    Order -->|SQL Transactions| DB
+
+    subgraph Broker["Apache Kafka 3.7 (KRaft)"]
+        T1["Topic: payment-successful\nkey = userId"]
+        T2["Topic: order-successful\nkey = orderId"]
+        T3["Topic: email-successful\nkey = orderId"]
+        DLQ["Topic: payment-successful.DLQ\nkey = eventId"]
+    end
+
+    Payment -->|"1. Atomic Tx: payment + outbox"| PaymentsTbl
+    Payment -->|"1. Atomic Tx"| OutboxTbl
+    OutboxTbl -.->|"2. Payment Outbox Relay\nSKIP LOCKED"| T1
+
+    T1 -->|"eachBatch consumer"| Order["Order Service"]
+    Order -->|"Atomic Batch Tx: orders +\nprocessed_events + outbox"| OrdersTbl
+    Order --> ProcessedTbl
+    Order --> OutboxTbl
+    Order -->|"Fallback 1-by-1 after 3 retries\n(poison message only)"| DLQ
+    OutboxTbl -.->|"Order Outbox Relay\nSKIP LOCKED"| T2
+
+    T2 -->|"eachBatch consumer"| Email["Email Service"]
+    Email -->|"Dispatch receipt +\nAtomic Batch Tx"| ProcessedTbl
+    Email --> OutboxTbl
+    OutboxTbl -.->|"Email Outbox Relay\nSKIP LOCKED"| T3
+
+    T1 -->|"eachBatch consumer"| Analytic["Analytic Service"]
+    T2 -->|"eachBatch consumer"| Analytic
+    T3 -->|"eachBatch consumer"| Analytic
+    Analytic -->|"Bulk ON CONFLICT DO NOTHING"| ProcessedTbl
 ```
 
-## 🛠️ Technology Stack
-- **Frontend**: Next.js 14, React, TailwindCSS
-- **API Gateway**: Node.js, Express, `http-proxy-middleware`, JWT Authentication
-- **Microservices**: Node.js (Order, Payment, Analytics, Email)
-- **Message Broker**: Apache Kafka & Zookeeper
-- **Database**: Neon (Serverless PostgreSQL)
-- **ORM & Migrations**: Drizzle ORM
-- **Containerization & DevOps**: Docker, Docker Compose, Kubernetes (`kubectl`)
+### Core Reliability Patterns
 
-## 💡 Key Design Decisions
+1. **Transactional Outbox (`outbox_events`)**: `payment-service`, `order-service`, and `email-service` write business state and outgoing events in a single PostgreSQL transaction. Background relay workers claim rows with `SELECT ... FOR UPDATE SKIP LOCKED`, publish to Kafka, and mark `published = true`, while topic-scoped pruners clean up published rows older than `OUTBOX_RETENTION_HOURS`.
+2. **Idempotent Consumers (`processed_events`)**: `order-service`, `email-service`, and `analytic-service` deduplicate incoming events on `(event_id, service_name)`. Redeliveries after a crash before Kafka offset commit skip already-processed events cleanly (zero duplicate orders).
+3. **Poison-Message Fallback in `eachBatch`**: If a batch transaction in `order-service` fails, the transaction rolls back cleanly and `order-service` falls back to processing that batch one message at a time in offset order. Valid messages still commit; after 3 retries, only the failing message is sent to `payment-successful.DLQ` and the consumer continues without getting stuck.
+4. **Split Health Checks (`payment-service`)**: `GET /health` reports process liveness (200 even during a Kafka outage so checkouts keep succeeding into PostgreSQL), while `GET /relay-status` reports Kafka relay and outbox pruner health (503 when disconnected from Kafka).
 
-### 1. Transactional Outbox Pattern (Reliability)
-**The Problem:** If a service saves data to the database but fails to subsequently publish that event to Kafka (due to a network crash), the distributed system state becomes permanently inconsistent.
-**The Solution:** The `payment-service` uses Drizzle ORM to **atomically** insert the payment record AND an event into a local `outbox_events` table in a single SQL transaction. A background worker then polls this table and reliably pushes events to Kafka, guaranteeing *at-least-once* delivery.
+---
 
-### 2. Drizzle ORM & Neon Postgres (Scalability vs Vendor Lock-In)
-Using **Neon** provides seamless serverless database scaling on AWS infrastructure under the hood, while **Drizzle ORM** prevents vendor lock-in. By relying purely on standard SQL schemas and standard PostgreSQL configurations rather than proprietary SDKs, the persistence layer can be instantly ported to AWS RDS or GCP Cloud SQL if enterprise requirements pivot.
+## Verified Benchmarks (Full-Drain Results Only)
 
-### 3. API Gateway & Centralized JWT Auth (Security)
-Instead of exposing fragmented microservices directly to the front-end client (which creates security risks and CORS nightmares), a unified API Gateway acts as a reverse proxy. It intercepts requests, validates JSON Web Tokens (JWT), and securely routes traffic to internal cluster IPs, drastically reducing the attack surface area.
+All numbers below come from clean, reset-database, full-drain runs with raw outputs stored in `benchmarks/raw/` and detailed methodology in [PHASE1-BENCHMARKS.md](PHASE1-BENCHMARKS.md).
 
-## 🚀 Getting Started Locally
+**Host for every benchmark row below**: Single local laptop — AMD Ryzen 7 6800H (8 physical cores / 16 threads @ 3.20 GHz), 16 GB RAM, Windows 11 Home (64-bit), Docker Desktop (WSL2). All 7 Docker containers and the k6 load generator ran on the same machine.
 
-### 1. Configure the Database
-1. Create a free Serverless Postgres database on [Neon.tech](https://neon.tech).
-2. Copy `.env.template` to `.env` and insert your Neon `DATABASE_URL`.
-3. In both the `payment-service` and `order-service` directories, execute the migration:  
-   ```bash
-   npx drizzle-kit push
-   ```
+### 1. Order Consumer Throughput & Lag (`baseline_consumer` vs `fix_a` vs `fix_b`)
 
-### 2. Spin Up the Cluster
-Run the entire architecture at once securely using Docker Compose! Ensure Docker Desktop is running, then execute:
+| Configuration | Workload | Host | Accepted req/s (mean) | True Completed checkouts/s (mean) | Order Lag @ 30s (mean) | Catch-up to Lag 0 (mean) | p50 / p95 Latency (ms) |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| `baseline_consumer` (1 part, `order=eachMessage`) | 20 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 199.06 | 71.37 | 3,984 msgs | 57.57s | 41.49 / 104.31 |
+| `baseline_consumer` (1 part, `order=eachMessage`) | 50 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 227.17 | 56.23 | 5,645 msgs | 96.11s | 135.36 / 350.41 |
+| `baseline_consumer` (1 part, `order=eachMessage`) | 100 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 285.61 | 48.42 | 7,420 msgs | 154.33s | 245.14 / 496.65 |
+| `fix_a` (6 parts, `order=eachMessage`, `concurrency=6`) | 20 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 220.04 | 152.24 | 2,142 msgs | 14.06s | 33.44 / 75.09 |
+| `fix_a` (6 parts, `order=eachMessage`, `concurrency=6`) | 50 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 273.48 | 90.74 | 5,858 msgs | 63.70s | 111.33 / 218.66 |
+| `fix_a` (6 parts, `order=eachMessage`, `concurrency=6`) | 100 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 340.17 | 87.88 | 7,912 msgs | 97.92s | 205.64 / 399.67 |
+| `fix_b` (1 part, `order=eachBatch`) | 20 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 253.12 | 251.17 | 0 msgs | 0.24s | 21.77 / 55.91 |
+| `fix_b` (1 part, `order=eachBatch`) | 50 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 372.13 | 368.92 | 0 msgs | 0.27s | 74.00 / 140.81 |
+| `fix_b` (1 part, `order=eachBatch`) | 100 VUs, 30s k6, 1,000 JWTs, 3 runs, full order drain | Ryzen 7 6800H / 16 GB / WSL2 | 379.49 | 375.75 | 0 msgs | 0.31s | 178.47 / 374.79 |
+
+### 2. Full-Pipeline Downstream Consumer Lag (`email-service` & `analytic-service` under `fix_b`)
+
+| Configuration | Workload | Host | Accepted req/s (mean) | Order Lag @ 30s / Catch-up | Email Lag @ 30s / Catch-up | Analytic Lag @ 30s / Catch-up (3x events) |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
+| Before (`order=eachBatch`, `email=eachMessage`, `analytic=eachMessage`) | 50 VUs, 30s k6, 1,000 JWTs, 3 runs, full 3-service drain | Ryzen 7 6800H / 16 GB / WSL2 | 304.48 | 0 msgs / 0.00s | 6,242 msgs / 48.68s | 23,661 msgs / 112.34s |
+| Before (`order=eachBatch`, `email=eachMessage`, `analytic=eachMessage`) | 100 VUs, 30s k6, 1,000 JWTs, 3 runs, full 3-service drain | Ryzen 7 6800H / 16 GB / WSL2 | 274.86 | 0 msgs / 0.00s | 5,050 msgs / 44.09s | 20,480 msgs / 97.15s |
+| Final (`order=eachBatch`, `email=eachBatch`, `analytic=eachBatch`, batched relays) | 50 VUs, 30s k6, 1,000 JWTs, 3 runs, full 3-service drain | Ryzen 7 6800H / 16 GB / WSL2 | 264.53 | 0 msgs / 0.00s | 0 msgs / 0.00s | 0 msgs / 0.00s |
+| Final (`order=eachBatch`, `email=eachBatch`, `analytic=eachBatch`, batched relays) | 100 VUs, 30s k6, 1,000 JWTs, 3 runs, full 3-service drain | Ryzen 7 6800H / 16 GB / WSL2 | 319.53 | 0 msgs / 0.00s | 0 msgs / 0.00s | 0 msgs / 0.00s |
+
+### 3. Resilience & Fault-Tolerance Verification (Final Code)
+
+| Test Script | Workload / Failure Mode | Host | Verified Raw Counts |
+| :--- | :--- | :--- | :--- |
+| `scripts/test-poison-batch.js` | 50-msg batch (49 valid + 1 `userId=null` DB error) + 1 follow-up msg | Ryzen 7 6800H / 16 GB / WSL2 | 49/49 orders created, 1 message in `payment-successful.DLQ`, follow-up #51 processed (1/1), Kafka lag = 0 |
+| `scripts/test-mid-batch-crash.js` | 50-msg batch committed to DB, `SIGKILL` before offset commit, restart | Ryzen 7 6800H / 16 GB / WSL2 | Lag before kill = 50; after restart: 50/50 orders present, 0 duplicates, 50/50 outbox published, lag = 0 |
+| `scripts/test-outbox-outage.js` | Stop Kafka, send 500 checkouts, restart Kafka + 2 `SKIP LOCKED` relays | Ryzen 7 6800H / 16 GB / WSL2 | 500/500 HTTP 200 in 2.21s (0 orders while down); after recovery: 500/500 orders in 31.1s, 0 lost, 0 duplicates |
+| `scripts/test-order-crash-recovery.js` | Kill `order-service` after DB commit and before outbox publish | Ryzen 7 6800H / 16 GB / WSL2 | 1/1 order persisted, 0 duplicates, 1/1 `order-successful` published, 1/1 email processed |
+
+---
+
+## Limitations
+
+- **Single-laptop benchmark host**: All 7 Docker containers (PostgreSQL, Kafka, API Gateway, and 4 microservices) plus the k6 load generator ran on one laptop (Ryzen 7 6800H, 16 GB RAM, Docker Desktop WSL2). Numbers reflect relative behavior under shared CPU/disk contention, not isolated multi-node production capacity.
+- **Shared `outbox_events` table**: `payment-service`, `order-service`, and `email-service` share a single PostgreSQL database and `outbox_events` table, isolated logically by `topic`, per-topic partial indexes, and topic-scoped pruners. A full production microservice split would give each service its own database instance and outbox table.
+- **25 ms relay busy pause (`RELAY_BUSY_PAUSE_MS=25`) is an observed effect**: Early comparisons between 0 ms and 25 ms were confounded by environment drift and unforwarded env vars; no isolated event-loop lag or PostgreSQL lock-wait experiment proved 25 ms as a causal mechanism. Under verified `RELAY_BATCH_SEND=true` + `RELAY_BUSY_PAUSE_MS=25`, batched sends do not starve checkout ingress, and this setting is documented strictly as an observed working parameter.
+- **`DEMO_AUTH` token endpoint is for demos and local testing only**: `POST /api/auth/token` and `POST /api/auth/tokens/batch` on `api-gateway` mint unsigned-passwordless demo JWTs for local tests, benchmarks, and demos. They are explicitly gated off (HTTP 404) whenever `NODE_ENV=production` or `DEMO_AUTH !== "true"`, and must never be enabled in production.
+
+---
+
+## Technology Stack
+
+- **API Gateway**: Node.js, Express, `http-proxy-middleware` (HTTP keep-alive), JWT verification
+- **Microservices**: Node.js (`payment-service`, `order-service`, `email-service`, `analytic-service`)
+- **Message Broker**: Apache Kafka 3.7.0 (KRaft mode — no Zookeeper)
+- **Database & ORM**: PostgreSQL 16 (`postgres:16-alpine`), Drizzle ORM
+- **Testing & CI**: Node test runner, Jest, Supertest, k6, GitHub Actions (unit tests + Docker Compose resilience suite)
+- **Containerization**: Docker & Docker Compose (`docker-compose.yml`)
+
+---
+
+## Running Locally
+
+### 1. Start the Full Stack
 ```bash
-docker-compose up --build -d
+docker compose up -d --build --wait
 ```
-Visit `http://localhost:3000` to interact with the Next.js frontend in real time!
+
+### 2. Run the Narrated Kafka Outage Demo
+```bash
+npm run demo:outage
+```
+Stops Kafka, sends 20 checkouts through the API Gateway (showing HTTP 200 responses and queued Postgres outbox rows while Kafka is down), restarts Kafka, and displays every checkout completing end-to-end with 0 lost and 0 duplicates.
+
+### 3. Run Unit & Resilience Tests
+```bash
+# Unit test suites across all 5 services
+npm test
+
+# Live Docker Compose resilience tests
+node scripts/test-poison-batch.js
+node scripts/test-mid-batch-crash.js
+node scripts/test-order-crash-recovery.js
+node scripts/test-outbox-outage.js
+```

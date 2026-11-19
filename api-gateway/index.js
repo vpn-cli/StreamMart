@@ -1,27 +1,106 @@
 import express from "express";
 import cors from "cors";
+import http from "node:http";
+import jwt from "jsonwebtoken";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { verifyToken } from "./auth.middleware.js";
+import { JWT_SECRET } from "./config.js";
 
 const app = express();
 app.use(cors());
 
-// Health Check
+// Health Check endpoint for Docker Compose & orchestration
 app.get("/health", (req, res) => res.status(200).send("API Gateway OK"));
 
+// Reusable HTTP Agent with TCP keep-alive to avoid socket teardown and handshake overhead
+const enableKeepAlive = process.env.PROXY_KEEP_ALIVE === "true";
+const paymentProxyHttpAgent = enableKeepAlive
+  ? new http.Agent({
+      keepAlive: true,
+      maxSockets: 200,
+      maxFreeSockets: 50,
+      timeout: 60000,
+      keepAliveMsecs: 30000,
+    })
+  : false;
+
+// Demo token issuing endpoint for clients, tests, and benchmarks.
+// SECURITY GUARD: Strictly disabled in production mode (NODE_ENV=production) or when DEMO_AUTH is not explicitly "true".
+app.post("/api/auth/token", express.json(), (req, res) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  const allowDemoAuth = process.env.DEMO_AUTH === "true" && !isProduction;
+
+  if (!allowDemoAuth) {
+    return res.status(404).json({ error: "Not Found" });
+  }
+
+  const userId = req.body?.userId || "user_demo_123";
+  const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
+  res.status(200).json({ token, userId });
+});
+
+// Demo batch token endpoint for multi-user realistic load testing
+app.post("/api/auth/tokens/batch", express.json(), (req, res) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  const allowDemoAuth = process.env.DEMO_AUTH === "true" && !isProduction;
+
+  if (!allowDemoAuth) {
+    return res.status(404).json({ error: "Not Found" });
+  }
+
+  const count = Math.min(req.body?.count || 1000, 5000);
+  const prefix = req.body?.prefix || "user";
+  const tokens = [];
+  for (let i = 0; i < count; i++) {
+    const userId = `${prefix}_${i}`;
+    const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
+    tokens.push({ userId, token });
+  }
+  res.status(200).json({ tokens });
+});
+
 // Proxy payment requests, enforcing JWT authorization
+// Target: internal payment-service within Docker Compose network
 app.use(
   "/api/payment",
   verifyToken, 
   createProxyMiddleware({
-    // If running in K8s, it uses 'payment-service', else localhost
-    target: process.env.PAYMENT_SERVICE_URL || "http://localhost:8000",
+    target: process.env.PAYMENT_SERVICE_URL || "http://payment-service:8000",
     changeOrigin: true,
+    agent: paymentProxyHttpAgent,
     pathRewrite: {
-      "^/api/payment": "/payment-service", 
+      "^/api/payment": "/payment",
+      "^/?$": "/payment",
     },
   })
 );
 
+let server;
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🚀 API Gateway securely routing traffic on port ${PORT}`));
+const targetPaymentUrl = process.env.PAYMENT_SERVICE_URL || "http://payment-service:8000";
+if (process.env.NODE_ENV !== "test") {
+  server = app.listen(PORT, () => {
+    console.log(`🚀 API Gateway securely routing traffic on port ${PORT}`);
+    console.log(
+      `[EFFECTIVE CONFIG] api-gateway: PORT=${PORT}, PAYMENT_SERVICE_URL=${targetPaymentUrl}, PROXY_KEEP_ALIVE=${enableKeepAlive}, NODE_ENV=${process.env.NODE_ENV || "development"}`
+    );
+  });
+}
+
+// Graceful shutdown handling
+const shutdown = () => {
+  console.log("API Gateway: shutting down gracefully...");
+  if (server) {
+    server.close(() => {
+      console.log("API Gateway closed.");
+      process.exit(0);
+    });
+  } else {
+    process.exit(0);
+  }
+};
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+
+export default app;
