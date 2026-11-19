@@ -179,6 +179,10 @@ npm run demo:outage
 ```
 Simulates a broker outage by stopping Kafka, sending 20 checkouts through the API Gateway (verifying HTTP 200 responses and safely queued PostgreSQL outbox rows while Kafka is offline), restarting Kafka, and observing every checkout completing end-to-end with 0 lost and 0 duplicates.
 
+<p align="center">
+  <img src="assets/demo-outage.gif" alt="StreamMart Kafka Outage Demo" width="850" />
+</p>
+
 ### 4. Run Unit & Resilience Tests
 ```bash
 # Unit test suites across all 5 microservices
