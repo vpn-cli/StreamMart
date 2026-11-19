@@ -1,5 +1,9 @@
 # StreamMart: Event-Driven E-Commerce Microservices
 
+[![Microservices CI](https://github.com/vpn-cli/streammart/actions/workflows/ci.yml/badge.svg)](https://github.com/vpn-cli/streammart/actions/workflows/ci.yml)
+
+> Resilient, high-throughput event-driven e-commerce microservices platform demonstrating zero-data-loss checkout persistence via the Transactional Outbox pattern and idempotent Kafka stream processing.
+
 <div align="center">
   <img src="https://img.shields.io/badge/Architecture-Event--Driven-blue.svg" alt="Architecture" />
   <img src="https://img.shields.io/badge/Message_Broker-Apache_Kafka_3.7_KRaft-black.svg?logo=apachekafka" alt="Kafka" />
@@ -64,6 +68,17 @@ flowchart TD
 2. **Idempotent Consumers (`processed_events`)**: `order-service`, `email-service`, and `analytic-service` deduplicate incoming events on `(event_id, service_name)`. Redeliveries after a crash before Kafka offset commit skip already-processed events cleanly (zero duplicate orders).
 3. **Poison-Message Fallback in `eachBatch`**: If a batch transaction in `order-service` fails, the transaction rolls back cleanly and `order-service` falls back to processing that batch one message at a time in offset order. Valid messages still commit; after 3 retries, only the failing message is sent to `payment-successful.DLQ` and the consumer continues without getting stuck.
 4. **Split Health Checks (`payment-service`)**: `GET /health` reports process liveness (200 even during a Kafka outage so checkouts keep succeeding into PostgreSQL), while `GET /relay-status` reports Kafka relay and outbox pruner health (503 when disconnected from Kafka).
+5. **Strict Secret Hygiene & Zero-Fallback Gateway**: `api-gateway/config.js` enforces that `JWT_SECRET` is defined and at least 32 characters long at startup; missing or short secrets fail immediately with a clear error. Both token issuance (`index.js`) and token verification (`auth.middleware.js`) share this single config module without hardcoded fallback strings.
+
+---
+
+## Security & Secret Management
+
+- **Centralized Validation (`api-gateway/config.js`)**: Fails fast on startup if `JWT_SECRET` is missing or shorter than 32 characters.
+- **No Hardcoded Fallback Secrets**: `docker-compose.yml` injects `JWT_SECRET=${JWT_SECRET}` without fallbacks so unconfigured container startups fail visibly instead of running on insecure defaults.
+- **Automatic Local Secret Generation**: `node scripts/start-stack.js` detects if `JWT_SECRET` is missing from the local gitignored `.env`, auto-generates a secure 32-byte hex secret (`crypto.randomBytes(32).toString('hex')`), writes it to `.env`, and logs notice.
+- **Ephemeral CI Secrets**: GitHub Actions workflow dynamically generates a unique masked 32-byte secret per run (`openssl rand -hex 32`) for both unit tests and Docker Compose resilience tests.
+- **Gated Demo Auth Endpoints**: `POST /api/auth/token` and `POST /api/auth/tokens/batch` are disabled (returning HTTP 404) unless `DEMO_AUTH=true` and `NODE_ENV !== "production"`.
 
 ---
 
@@ -129,25 +144,106 @@ All numbers below come from clean, reset-database, full-drain runs with raw outp
 
 ## Running Locally
 
-### 1. Start the Full Stack
+### 1. Environment Setup
+
+Clone the repository and configure your environment:
 ```bash
-docker compose up -d --build --wait
+git clone https://github.com/vpn-cli/streammart.git
+cd streammart
+cp .env.example .env
+```
+To generate a secure 32-character hex secret:
+```bash
+openssl rand -hex 32
+```
+> **Note:** If you start services via `node scripts/start-stack.js`, it automatically detects if `JWT_SECRET` is missing in `.env`, generates a secure random 32-byte secret (`crypto.randomBytes(32).toString('hex')`), and persists it to your local gitignored `.env`.
+
+### 2. Start the Full Stack (Docker Compose)
+
+Start PostgreSQL, Apache Kafka (KRaft), Kafka initializer, and all 5 services with health check dependencies:
+```bash
+# Build and start all containers with health checks
+npm run stack:up
+# (equivalent to: docker compose up -d --build --wait)
+
+# Verify running container status & health
+npm run stack:ps
+
+# Stop the stack
+npm run stack:down
 ```
 
-### 2. Run the Narrated Kafka Outage Demo
+### 3. Run the Narrated Kafka Outage Demo
 ```bash
 npm run demo:outage
 ```
-Stops Kafka, sends 20 checkouts through the API Gateway (showing HTTP 200 responses and queued Postgres outbox rows while Kafka is down), restarts Kafka, and displays every checkout completing end-to-end with 0 lost and 0 duplicates.
+Simulates a broker outage by stopping Kafka, sending 20 checkouts through the API Gateway (verifying HTTP 200 responses and safely queued PostgreSQL outbox rows while Kafka is offline), restarting Kafka, and observing every checkout completing end-to-end with 0 lost and 0 duplicates.
 
-### 3. Run Unit & Resilience Tests
+### 4. Run Unit & Resilience Tests
 ```bash
-# Unit test suites across all 5 services
+# Unit test suites across all 5 microservices
 npm test
 
-# Live Docker Compose resilience tests
+# Per-service unit test targets
+npm run test:gateway
+npm run test:payment
+npm run test:order
+npm run test:email
+npm run test:analytic
+
+# Live Docker Compose resilience tests (requires stack running)
 node scripts/test-poison-batch.js
 node scripts/test-mid-batch-crash.js
 node scripts/test-order-crash-recovery.js
 node scripts/test-outbox-outage.js
+```
+
+---
+
+## Continuous Integration (CI/CD)
+
+The repository runs an automated two-stage pipeline on [GitHub Actions](https://github.com/vpn-cli/streammart/actions/workflows/ci.yml) (`.github/workflows/ci.yml`) on every push and pull request to `main`, `master`, and `fix/*`:
+
+1. **`unit-and-integration-tests`**:
+   - Generates a masked ephemeral `JWT_SECRET` (`openssl rand -hex 32`).
+   - Runs `npm test` across all 5 services (`api-gateway`, `payment-service`, `order-service`, `email-service`, `analytic-service`).
+2. **`docker-resilience-tests`**:
+   - Deploys the complete containerized stack using `docker compose up -d --build --wait`.
+   - Executes all 4 live fault-injection and crash-recovery test harnesses:
+     - Poison message isolation and batch fallback (`test-poison-batch.js`)
+     - Mid-batch uncommitted offset crash recovery (`test-mid-batch-crash.js`)
+     - Order-service crash recovery between DB commit and event emit (`test-order-crash-recovery.js`)
+     - Kafka broker outage survival with concurrent `SKIP LOCKED` relays (`test-outbox-outage.js`)
+   - Collects container logs on failure and tears down stack volumes cleanly.
+
+---
+
+## Project Structure
+
+```text
+micro-services/
+├── api-gateway/                 # Reverse proxy, JWT signing & verification, keep-alive agent
+│   ├── config.js                # Centralized JWT_SECRET startup validation
+│   ├── index.js                 # Routing & demo auth token minting
+│   ├── auth.middleware.js       # JWT bearer token verification
+│   └── tests/auth.test.js       # Auth & gateway security test suite
+├── payment-service/             # Ingress checkout endpoint & Transactional Outbox
+│   ├── index.js                 # HTTP endpoints (/payment, /health, /relay-status)
+│   ├── worker.js                # Outbox relay (SKIP LOCKED) & retention pruner
+│   └── db/                      # Drizzle schema (payments, outbox_events)
+├── order-service/               # Idempotent batch event consumer & order creator
+│   ├── worker.js                # Outbox relay for order-successful events
+│   ├── consumer-processor.js    # eachBatch processing with poison-pill 1-by-1 fallback
+│   └── db/                      # Schema (orders, processed_events, outbox_events)
+├── email-service/               # Receipt dispatch consumer & outbox relay
+│   ├── worker.js                # Outbox relay for email-successful events
+│   ├── consumer-processor.js    # eachBatch processing & idempotency deduplication
+│   └── db/                      # Schema (processed_events, outbox_events)
+├── analytic-service/            # Cross-topic event collector & metrics consumer
+│   ├── index.js                 # Multi-topic eachBatch consumer
+│   └── db/                      # Schema (processed_events)
+├── benchmarks/                  # K6 benchmarks, raw result JSONs, and latency runners
+├── scripts/                     # Outage demo, crash recovery harnesses, and startup scripts
+├── docker-compose.yml           # Multi-container orchestration (KRaft Kafka, Postgres 16)
+└── .github/workflows/ci.yml     # Automated CI pipeline (unit + Docker resilience suite)
 ```
